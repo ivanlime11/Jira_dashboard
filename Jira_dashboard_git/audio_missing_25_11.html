@@ -1,0 +1,1023 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jira Insights - Dec 2025</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        :root {
+            --primary-dark: #00424a;
+            --primary-light: #edfcff;
+            --secondary-dark: #273f43;
+            --secondary-light: #dbf6fa;
+            --tertiary-dark: #2f3b58;
+            --tertiary-light: #bac6ea;
+            --background: #cde7ec;
+            --neutral-dark: #393c3d;
+            --neutral-light: #f8fafa;
+        }
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--background);
+            color: var(--neutral-dark);
+        }
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        .chart-container {
+            background-color: var(--neutral-light);
+            border-radius: 0.75rem;
+            padding: 1.5rem;
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+            transition: all 0.3s ease-in-out;
+        }
+        .chart-container:hover {
+            box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+            transform: translateY(-2px);
+        }
+        .tooltip {
+            position: absolute;
+            text-align: center;
+            padding: 0.5rem;
+            font-size: 0.875rem;
+            background: var(--secondary-dark);
+            color: var(--neutral-light);
+            border: 0px;
+            border-radius: 8px;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.2s;
+            z-index: 100;
+        }
+        .axis path,
+        .axis line {
+            fill: none;
+            stroke: #a0aec0;
+            shape-rendering: crispEdges;
+        }
+        .axis text {
+            font-size: 12px;
+            fill: var(--neutral-dark);
+        }
+        .grid-line {
+            stroke: #e2e8f0;
+            stroke-opacity: 0.7;
+            shape-rendering: crispEdges;
+        }
+        .sidebar-toggle {
+            z-index: 50;
+        }
+        #sidebar {
+            transition: transform 0.3s ease-in-out;
+        }
+        .bar:hover {
+            opacity: 0.8;
+        }
+        .line {
+            fill: none;
+            stroke-width: 2.5px;
+        }
+        .dot {
+            stroke-width: 2px;
+        }
+        .legend-item {
+            cursor: pointer;
+            transition: opacity 0.2s;
+        }
+        .legend-item.faded {
+            opacity: 0.3;
+        }
+    </style>
+</head>
+<body class="overflow-x-hidden">
+    <div class="flex h-screen bg-gray-100" style="background-color: var(--background);">
+        <!-- Sidebar -->
+        <aside id="sidebar" class="fixed top-0 left-0 z-40 w-64 h-screen bg-white shadow-lg transform -translate-x-full md:translate-x-0" style="background-color: var(--primary-dark); color: var(--neutral-light);">
+            <div class="p-6">
+                <h1 class="text-2xl font-bold text-white">Dashboard</h1>
+                <p class="text-sm mt-1" style="color: var(--secondary-light);">Jira Data Analysis</p>
+            </div>
+            <nav class="mt-4 px-4">
+                <h3 class="px-2 text-xs uppercase font-semibold tracking-wider" style="color: var(--tertiary-light);">Filters</h3>
+                <div class="mt-4 space-y-4">
+                    <div>
+                        <label for="startDate" class="block text-sm font-medium" style="color: var(--secondary-light);">Start Date</label>
+                        <input type="date" id="startDate" class="mt-1 block w-full bg-transparent border-0 border-b-2 border-gray-500 focus:ring-0 focus:border-white text-white p-1">
+                    </div>
+                    <div>
+                        <label for="endDate" class="block text-sm font-medium" style="color: var(--secondary-light);">End Date</label>
+                        <input type="date" id="endDate" class="mt-1 block w-full bg-transparent border-0 border-b-2 border-gray-500 focus:ring-0 focus:border-white text-white p-1">
+                    </div>
+                    <button id="resetFilters" class="w-full text-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white" style="background-color: var(--tertiary-dark); hover:background-color: var(--tertiary-light);">Reset Filters</button>
+                </div>
+            </nav>
+            <div class="absolute bottom-4 left-0 w-full px-6">
+                <button id="downloadBtn" class="w-full flex items-center justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white" style="background-color: var(--secondary-dark);">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
+                        <path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd" />
+                    </svg>
+                    Download HTML
+                </button>
+            </div>
+        </aside>
+
+        <!-- Main content -->
+        <div class="flex-1 flex flex-col overflow-hidden md:ml-64">
+            <header class="flex justify-between items-center p-4 bg-white shadow-md md:shadow-none" style="background-color: var(--neutral-light);">
+                <button id="sidebar-toggle" class="text-gray-500 focus:outline-none md:hidden">
+                    <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M4 6H20M4 12H20M4 18H11Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>
+                    </svg>
+                </button>
+                <h2 class="text-xl font-semibold text-gray-700" style="color: var(--primary-dark);">Data Overview (Sept - Dec 2025)</h2>
+                <div></div>
+            </header>
+            <main class="flex-1 overflow-x-hidden overflow-y-auto p-4 md:p-6 lg:p-8">
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <!-- Bar Chart -->
+                    <div class="chart-container lg:col-span-2">
+                        <div class="flex justify-between items-center mb-2">
+                            <h3 class="text-lg font-semibold" style="color: var(--primary-dark);">Total Quantity by Category</h3>
+                            <button id="backToOverviewBtn" class="hidden text-sm font-medium py-1 px-3 rounded" style="background-color: var(--tertiary-light); color: var(--tertiary-dark);">&larr; Back to Overview</button>
+                        </div>
+                        <div id="bar-chart"></div>
+                    </div>
+
+                    <!-- Line Chart -->
+                    <div class="chart-container lg:col-span-2">
+                        <h3 class="text-lg font-semibold mb-2" style="color: var(--primary-dark);">Trends Over Time</h3>
+                        <div id="line-chart"></div>
+                        <div id="line-chart-legend" class="flex flex-wrap justify-center mt-4 gap-x-4 gap-y-2"></div>
+                    </div>
+
+                    <!-- Pie Charts -->
+                    <div class="chart-container">
+                        <h3 class="text-lg font-semibold" style="color: var(--primary-dark);">Weekly Breakdown</h3>
+                        <select id="week-selector" class="mt-2 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md"></select>
+                        <div id="pie-chart-week" class="mt-4"></div>
+                    </div>
+                    <div class="chart-container">
+                        <h3 class="text-lg font-semibold" style="color: var(--primary-dark);">Monthly Breakdown</h3>
+                        <select id="month-selector" class="mt-2 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md"></select>
+                        <div id="pie-chart-month" class="mt-4"></div>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <div id="tooltip" class="tooltip"></div>
+
+    <script>
+        // CSV Data Embedded directly
+        const csvContent = `Création;Étiquettes;Étiquettes
+24/nov./25 5:23 PM;Err_Sync;
+24/nov./25 4:36 PM;Err_Sync;
+24/nov./25 3:48 PM;Doublons;
+24/nov./25 3:42 PM;Doublons;
+24/nov./25 12:09 PM;Err_Sync;
+24/nov./25 12:06 PM;Err_Sync;
+24/nov./25 11:05 AM;Err_Sync;
+24/nov./25 11:04 AM;Err_Sync;
+24/nov./25 10:24 AM;Fichier_corrompu;
+21/nov./25 5:58 PM;Emoji_named_file;
+21/nov./25 5:56 PM;Fichier_corrompu;
+21/nov./25 5:56 PM;Emoji_named_file;
+21/nov./25 5:20 PM;Fichier_corrompu;
+21/nov./25 4:57 PM;Doublons;
+21/nov./25 4:54 PM;Err_Sync;
+21/nov./25 2:49 PM;MD5;
+21/nov./25 2:07 PM;Doublons;
+21/nov./25 12:20 PM;Fichier_corrompu;
+21/nov./25 12:13 PM;Fichier_corrompu;
+21/nov./25 10:44 AM;Doublons;
+21/nov./25 10:40 AM;Err_Sync;
+21/nov./25 10:27 AM;Moins_de_fichier;
+20/nov./25 5:52 PM;MD5;
+20/nov./25 4:59 PM;Fichier_corrompu;
+20/nov./25 4:06 PM;Err_Sync;
+20/nov./25 3:35 PM;Err_Sync;
+20/nov./25 2:23 PM;Doublons;
+20/nov./25 2:05 PM;Fichier_corrompu;
+20/nov./25 2:04 PM;Doublons;
+20/nov./25 2:03 PM;Fichier_corrompu;
+19/nov./25 4:03 PM;Err_Sync;
+19/nov./25 3:30 PM;Doublons;
+19/nov./25 3:27 PM;Fichier_corrompu;
+19/nov./25 3:06 PM;Err_Sync;
+19/nov./25 3:05 PM;Doublons;
+19/nov./25 11:30 AM;Doublons;
+19/nov./25 10:02 AM;Fichier_corrompu;
+18/nov./25 12:10 PM;Doublons;
+18/nov./25 11:38 AM;Doublons;
+18/nov./25 10:47 AM;Err_Sync;
+18/nov./25 10:46 AM;Fichier_corrompu;
+18/nov./25 10:45 AM;Emoji_named_file;
+18/nov./25 10:45 AM;Emoji_named_file;
+18/nov./25 10:43 AM;Fichier_corrompu;
+18/nov./25 10:42 AM;Emoji_named_file;
+18/nov./25 10:32 AM;Fichier_corrompu;
+18/nov./25 10:32 AM;Emoji_named_file;
+18/nov./25 10:31 AM;Emoji_named_file;
+18/nov./25 10:24 AM;Emoji_named_file;
+18/nov./25 10:24 AM;Emoji_named_file;
+18/nov./25 10:23 AM;Moins_de_fichier;
+18/nov./25 10:23 AM;Emoji_named_file;
+18/nov./25 10:22 AM;Emoji_named_file;
+17/nov./25 3:15 PM;Doublons;
+17/nov./25 11:42 AM;Fichier_corrompu;
+17/nov./25 10:54 AM;Fichier_corrompu;
+15/nov./25 10:54 AM;Fichier_corrompu;
+14/nov./25 6:04 PM;Fichier_corrompu;
+14/nov./25 6:01 PM;Emoji_named_file;
+14/nov./25 6:00 PM;Fichier_corrompu;MD5
+14/nov./25 5:12 PM;Fichier_corrompu;
+14/nov./25 5:11 PM;Fichier_corrompu;
+14/nov./25 5:09 PM;Doublons;
+14/nov./25 4:48 PM;Fichier_corrompu;
+14/nov./25 4:30 PM;Fichier_corrompu;
+14/nov./25 4:14 PM;Fichier_corrompu;
+14/nov./25 4:07 PM;Fichier_corrompu;
+14/nov./25 3:59 PM;Fichier_corrompu;
+14/nov./25 3:54 PM;Fichier_corrompu;
+14/nov./25 3:53 PM;Fichier_corrompu;
+14/nov./25 3:53 PM;Doublons;
+14/nov./25 3:52 PM;Fichier_corrompu;
+14/nov./25 2:51 PM;Fichier_corrompu;
+14/nov./25 11:42 AM;Doublons;
+14/nov./25 11:19 AM;Doublons;
+14/nov./25 11:18 AM;Doublons;
+14/nov./25 10:52 AM;Fichier_corrompu;
+13/nov./25 6:02 PM;Fichier_corrompu;
+13/nov./25 5:34 PM;Fichier_corrompu;
+13/nov./25 5:04 PM;Fichier_corrompu;
+13/nov./25 5:03 PM;Fichier_corrompu;
+13/nov./25 2:25 PM;Fichier_corrompu;
+13/nov./25 2:03 PM;Fichier_corrompu;
+13/nov./25 12:06 PM;Doublons;
+13/nov./25 11:57 AM;Fichier_corrompu;
+13/nov./25 11:11 AM;Fichier_corrompu;
+13/nov./25 11:07 AM;Fichier_corrompu;
+12/nov./25 5:40 PM;Fichier_corrompu;
+12/nov./25 5:21 PM;Emoji_named_file;
+12/nov./25 5:20 PM;Emoji_named_file;
+12/nov./25 5:19 PM;Emoji_named_file;
+12/nov./25 2:46 PM;Fichier_corrompu;
+12/nov./25 2:13 PM;Doublons;
+12/nov./25 2:01 PM;Fichier_corrompu;
+12/nov./25 12:15 PM;Fichier_corrompu;
+12/nov./25 12:14 PM;Fichier_corrompu;
+12/nov./25 10:23 AM;Fichier_corrompu;
+12/nov./25 9:56 AM;Fichier_corrompu;
+11/nov./25 9:45 AM;Fichier_corrompu;
+11/nov./25 9:25 AM;Err_Sync;
+10/nov./25 6:08 PM;Doublons;
+10/nov./25 5:11 PM;Fichier_corrompu;
+10/nov./25 4:43 PM;MD5;
+10/nov./25 4:25 PM;Fichier_corrompu;
+10/nov./25 4:01 PM;Fichier_corrompu;
+10/nov./25 3:09 PM;Fichier_corrompu;
+10/nov./25 2:30 PM;Fichier_corrompu;
+10/nov./25 11:55 AM;Fichier_corrompu;
+10/nov./25 8:20 AM;Fichier_corrompu;
+10/nov./25 6:04 AM;Doublons;
+07/nov./25 5:47 PM;Doublons;
+07/nov./25 4:53 PM;Moins_de_fichier;
+07/nov./25 4:53 PM;Doublons;
+07/nov./25 3:37 PM;Emoji_named_file;
+07/nov./25 12:42 PM;Emoji_named_file;
+07/nov./25 12:37 PM;Fichier_corrompu;
+07/nov./25 12:35 PM;Emoji_named_file;
+07/nov./25 12:33 PM;Doublons;
+07/nov./25 12:10 PM;Fichier_corrompu;
+07/nov./25 11:54 AM;Moins_de_fichier;
+07/nov./25 11:53 AM;Dif_de_format;Doublons
+07/nov./25 11:49 AM;Fichier_corrompu;
+07/nov./25 11:21 AM;Fichier_corrompu;
+07/nov./25 8:01 AM;Fichier_corrompu;
+06/nov./25 4:18 PM;Fichier_corrompu;
+06/nov./25 4:17 PM;Fichier_corrompu;
+06/nov./25 4:16 PM;Fichier_corrompu;
+06/nov./25 4:15 PM;Doublons;Fichier_corrompu
+06/nov./25 4:11 PM;Doublons;
+06/nov./25 4:06 PM;Doublons;
+06/nov./25 12:57 PM;Fichier_corrompu;
+06/nov./25 12:53 PM;Doublons;
+06/nov./25 12:50 PM;Fichier_corrompu;
+06/nov./25 12:13 PM;Fichier_corrompu;
+06/nov./25 11:58 AM;Emoji_named_file;
+06/nov./25 11:57 AM;Fichier_corrompu;
+06/nov./25 11:46 AM;Fichier_corrompu;
+06/nov./25 11:25 AM;Fichier_corrompu;
+06/nov./25 11:21 AM;Fichier_corrompu;
+05/nov./25 6:01 PM;Fichier_corrompu;
+05/nov./25 5:18 PM;Doublons;
+05/nov./25 4:51 PM;Doublons;
+05/nov./25 1:30 PM;Doublons;
+05/nov./25 1:18 PM;Emoji_named_file;
+05/nov./25 12:05 PM;Emoji_named_file;
+05/nov./25 10:43 AM;Fichier_corrompu;
+05/nov./25 10:25 AM;Doublons;
+05/nov./25 10:04 AM;Err_Sync;
+05/nov./25 5:47 AM;Fichier_corrompu;
+05/nov./25 5:37 AM;MD5;
+05/nov./25 5:19 AM;Doublons;
+05/nov./25 5:04 AM;Doublons;
+04/nov./25 10:47 AM;Doublons;
+03/nov./25 4:52 PM;Err_Sync;
+03/nov./25 4:48 PM;Fichier_corrompu;
+03/nov./25 2:25 PM;Doublons;
+03/nov./25 2:24 PM;Doublons;
+03/nov./25 10:49 AM;Emoji_named_file;
+03/nov./25 10:23 AM;Fichier_corrompu;
+31/oct./25 5:01 PM;Emoji_named_file;
+31/oct./25 4:39 PM;Doublons;
+31/oct./25 4:14 PM;Doublons;
+31/oct./25 3:48 PM;Fichier_corrompu;
+31/oct./25 3:29 PM;Err_Sync;
+30/oct./25 2:54 PM;Fichier_corrompu;
+30/oct./25 12:56 PM;Doublons;Fichier_corrompu
+30/oct./25 11:35 AM;Fichier_corrompu;
+30/oct./25 10:50 AM;Moins_de_fichier;
+30/oct./25 8:11 AM;Emoji_named_file;
+29/oct./25 5:30 PM;Err_Sync;
+29/oct./25 5:14 PM;MD5;
+29/oct./25 5:11 PM;MD5;
+29/oct./25 3:48 PM;Doublons;
+29/oct./25 2:13 PM;Fichier_corrompu;
+29/oct./25 12:26 PM;Doublons;
+29/oct./25 12:18 PM;MD5;
+29/oct./25 12:09 PM;Emoji_named_file;
+29/oct./25 6:17 AM;Doublons;
+28/oct./25 5:13 PM;Err_Sync;
+28/oct./25 4:31 PM;Fichier_corrompu;
+28/oct./25 3:01 PM;Err_Sync;
+28/oct./25 1:29 PM;MD5;
+28/oct./25 12:04 PM;Doublons;
+28/oct./25 11:33 AM;Err_Sync;
+28/oct./25 11:32 AM;Err_Sync;
+27/oct./25 5:36 PM;Fichier_corrompu;
+27/oct./25 5:21 PM;Err_Sync;
+27/oct./25 4:23 PM;Fichier_corrompu;
+27/oct./25 4:19 PM;Err_Sync;
+27/oct./25 4:02 PM;Doublons;
+27/oct./25 3:59 PM;Doublons;
+27/oct./25 3:56 PM;Doublons;
+27/oct./25 3:54 PM;Err_Sync;
+27/oct./25 3:12 PM;Fichier_corrompu;
+27/oct./25 11:52 AM;Doublons;
+24/oct./25 5:23 PM;Err_Sync;
+24/oct./25 5:20 PM;Err_Sync;
+24/oct./25 5:18 PM;Doublons;
+24/oct./25 5:09 PM;MD5;
+24/oct./25 4:58 PM;MD5;
+24/oct./25 3:51 PM;Fichier_corrompu;
+24/oct./25 3:28 PM;MD5;
+24/oct./25 1:50 PM;Fichier_corrompu;
+24/oct./25 11:49 AM;Doublons;
+24/oct./25 10:29 AM;Fichier_corrompu;
+24/oct./25 10:24 AM;MD5;
+24/oct./25 7:44 AM;Fichier_corrompu;
+23/oct./25 5:24 PM;Fichier_corrompu;
+23/oct./25 4:00 PM;MD5;
+23/oct./25 3:37 PM;Doublons;
+23/oct./25 3:34 PM;MD5;
+23/oct./25 3:33 PM;Err_Sync;
+23/oct./25 3:17 PM;Doublons;
+23/oct./25 1:12 PM;MD5;
+23/oct./25 1:12 PM;MD5;
+23/oct./25 12:34 PM;MD5;
+23/oct./25 11:50 AM;MD5;
+23/oct./25 11:09 AM;Err_Sync;
+23/oct./25 10:58 AM;Fichier_corrompu;
+23/oct./25 10:56 AM;Fichier_corrompu;
+23/oct./25 10:54 AM;Doublons;
+23/oct./25 10:52 AM;Fichier_corrompu;
+23/oct./25 10:51 AM;Fichier_corrompu;
+22/oct./25 5:50 PM;Fichier_corrompu;
+22/oct./25 4:58 PM;Fichier_corrompu;
+22/oct./25 4:46 PM;Fichier_corrompu;
+22/oct./25 3:52 PM;Fichier_corrompu;
+22/oct./25 3:15 PM;Fichier_corrompu;
+22/oct./25 3:14 PM;Fichier_corrompu;
+22/oct./25 3:13 PM;Doublons;
+22/oct./25 3:10 PM;Doublons;
+22/oct./25 2:37 PM;Fichier_corrompu;
+22/oct./25 12:12 PM;Err_Sync;
+22/oct./25 10:49 AM;Fichier_corrompu;
+22/oct./25 10:42 AM;Fichier_corrompu;
+22/oct./25 10:33 AM;Fichier_corrompu;
+21/oct./25 6:27 PM;MD5;
+21/oct./25 6:00 PM;MD5;
+21/oct./25 5:49 PM;Fichier_corrompu;
+21/oct./25 5:28 PM;Fichier_corrompu;
+21/oct./25 4:53 PM;Fichier_corrompu;
+21/oct./25 4:52 PM;Fichier_corrompu;
+21/oct./25 4:35 PM;Fichier_corrompu;
+21/oct./25 3:46 PM;Fichier_corrompu;
+21/oct./25 3:28 PM;Fichier_corrompu;
+21/oct./25 2:38 PM;Doublons;
+21/oct./25 2:10 PM;Fichier_corrompu;
+21/oct./25 2:04 PM;Fichier_corrompu;
+21/oct./25 1:55 PM;Fichier_corrompu;
+21/oct./25 12:38 PM;Doublons;
+21/oct./25 12:29 PM;Fichier_corrompu;
+21/oct./25 12:28 PM;Fichier_corrompu;
+21/oct./25 12:27 PM;Fichier_corrompu;
+21/oct./25 12:23 PM;Err_Sync;
+21/oct./25 12:09 PM;Fichier_corrompu;
+21/oct./25 12:08 PM;Fichier_corrompu;
+21/oct./25 11:47 AM;Err_Sync;
+21/oct./25 11:47 AM;Fichier_corrompu;
+21/oct./25 11:46 AM;Doublons;
+21/oct./25 11:37 AM;Fichier_corrompu;
+21/oct./25 11:23 AM;Fichier_corrompu;
+21/oct./25 11:22 AM;Fichier_corrompu;
+21/oct./25 11:01 AM;Fichier_corrompu;
+21/oct./25 10:59 AM;Fichier_corrompu;
+21/oct./25 10:50 AM;Fichier_corrompu;
+21/oct./25 10:29 AM;Fichier_corrompu;
+21/oct./25 10:27 AM;Fichier_corrompu;
+21/oct./25 10:26 AM;Fichier_corrompu;
+21/oct./25 10:22 AM;Fichier_corrompu;
+20/oct./25 6:26 PM;Err_Sync;
+20/oct./25 6:14 PM;Fichier_corrompu;
+20/oct./25 6:07 PM;Fichier_corrompu;
+20/oct./25 6:06 PM;Fichier_corrompu;
+20/oct./25 5:58 PM;Fichier_corrompu;
+20/oct./25 5:57 PM;Err_Sync;
+20/oct./25 5:55 PM;Fichier_corrompu;
+20/oct./25 5:54 PM;Doublons;
+20/oct./25 5:44 PM;Fichier_corrompu;
+20/oct./25 5:34 PM;Fichier_corrompu;
+20/oct./25 5:34 PM;Fichier_corrompu;
+20/oct./25 5:33 PM;Err_Sync;
+20/oct./25 5:32 PM;Err_Sync;
+20/oct./25 5:31 PM;Fichier_corrompu;
+20/oct./25 5:16 PM;Fichier_corrompu;
+20/oct./25 5:15 PM;Err_Sync;Fichier_corrompu
+20/oct./25 5:14 PM;Emoji_named_file;
+20/oct./25 5:13 PM;Emoji_named_file;
+20/oct./25 5:00 PM;Dif_de_format;Err_Sync
+20/oct./25 4:56 PM;Fichier_corrompu;
+20/oct./25 11:21 AM;Fichier_corrompu;
+20/oct./25 11:21 AM;Fichier_corrompu;
+20/oct./25 10:24 AM;Fichier_corrompu;
+17/oct./25 5:53 PM;Fichier_corrompu;
+17/oct./25 5:45 PM;Fichier_corrompu;
+17/oct./25 5:38 PM;Fichier_corrompu;
+17/oct./25 5:33 PM;Err_Sync;Fichier_corrompu
+17/oct./25 5:23 PM;Fichier_corrompu;
+17/oct./25 5:22 PM;Fichier_corrompu;
+17/oct./25 5:21 PM;Fichier_corrompu;
+17/oct./25 5:19 PM;Fichier_corrompu;
+17/oct./25 4:42 PM;Doublons;
+17/oct./25 4:29 PM;Doublons;
+17/oct./25 3:11 PM;Fichier_corrompu;
+17/oct./25 3:09 PM;Fichier_corrompu;
+17/oct./25 3:07 PM;Fichier_corrompu;
+17/oct./25 3:05 PM;Fichier_corrompu;
+17/oct./25 3:04 PM;Fichier_corrompu;
+17/oct./25 3:04 PM;Fichier_corrompu;
+17/oct./25 2:17 PM;Doublons;
+17/oct./25 2:15 PM;MD5;
+17/oct./25 12:02 PM;Doublons;
+17/oct./25 11:07 AM;MD5;
+17/oct./25 7:23 AM;MD5;
+16/oct./25 5:38 PM;Fichier_corrompu;
+16/oct./25 4:59 PM;Fichier_corrompu;
+16/oct./25 4:58 PM;Doublons;
+16/oct./25 4:57 PM;Doublons;
+16/oct./25 2:57 PM;Err_Sync;
+16/oct./25 2:30 PM;MD5;
+16/oct./25 2:27 PM;Doublons;
+16/oct./25 12:09 PM;Doublons;
+16/oct./25 11:59 AM;Emoji_named_file;
+16/oct./25 10:54 AM;Emoji_named_file;
+15/oct./25 5:43 PM;MD5;
+15/oct./25 5:36 PM;Doublons;
+15/oct./25 5:35 PM;Doublons;
+15/oct./25 4:01 PM;Doublons;
+15/oct./25 4:00 PM;Doublons;
+15/oct./25 1:56 PM;Doublons;
+15/oct./25 11:24 AM;Doublons;
+15/oct./25 11:12 AM;MD5;
+14/oct./25 6:03 PM;Doublons;
+14/oct./25 5:57 PM;Err_Sync;
+14/oct./25 5:56 PM;Doublons;
+14/oct./25 3:51 PM;Err_Sync;
+14/oct./25 3:22 PM;Fichier_corrompu;
+14/oct./25 2:04 PM;Doublons;
+14/oct./25 11:03 AM;Fichier_corrompu;
+14/oct./25 10:10 AM;Emoji_named_file;
+13/oct./25 5:34 PM;Doublons;
+13/oct./25 5:07 PM;Fichier_corrompu;
+13/oct./25 3:38 PM;Doublons;Err_Sync
+13/oct./25 2:58 PM;Doublons;Fichier_corrompu
+13/oct./25 2:56 PM;MD5;
+13/oct./25 12:21 PM;Emoji_named_file;MD5
+13/oct./25 10:36 AM;Fichier_corrompu;
+13/oct./25 10:20 AM;Err_Sync;
+10/oct./25 4:17 PM;Doublons;
+10/oct./25 3:24 PM;Doublons;
+10/oct./25 3:20 PM;Fichier_corrompu;
+10/oct./25 2:24 PM;Err_Sync;
+10/oct./25 2:19 PM;Fichier_corrompu;
+10/oct./25 5:09 AM;Doublons;
+10/oct./25 5:08 AM;Doublons;
+09/oct./25 4:43 PM;Doublons;
+09/oct./25 4:14 PM;Moins_de_fichier;
+09/oct./25 3:07 PM;Err_Sync;
+09/oct./25 3:05 PM;Doublons;
+09/oct./25 12:50 PM;Emoji_named_file;
+08/oct./25 5:50 PM;Err_Sync;
+08/oct./25 5:27 PM;Doublons;MD5
+08/oct./25 5:27 PM;Err_Sync;
+08/oct./25 5:26 PM;Fichier_corrompu;
+08/oct./25 5:02 PM;Err_Sync;
+08/oct./25 4:50 PM;Err_Sync;
+07/oct./25 5:27 PM;Err_Sync;
+07/oct./25 2:42 PM;Fichier_corrompu;
+06/oct./25 5:47 PM;Doublons;
+06/oct./25 3:04 PM;Err_Sync;
+06/oct./25 12:03 PM;Doublons;
+06/oct./25 11:35 AM;Fichier_corrompu;
+06/oct./25 11:22 AM;Doublons;
+03/oct./25 5:16 PM;Doublons;
+03/oct./25 5:14 PM;Doublons;
+03/oct./25 5:03 PM;Doublons;
+03/oct./25 4:57 PM;Doublons;
+03/oct./25 4:51 PM;Doublons;
+03/oct./25 2:59 PM;Emoji_named_file;
+03/oct./25 11:21 AM;Fichier_corrompu;
+02/oct./25 4:35 PM;Doublons;
+02/oct./25 4:21 PM;Err_Sync;
+02/oct./25 3:50 PM;Doublons;
+02/oct./25 3:19 PM;Doublons;
+02/oct./25 2:53 PM;Emoji_named_file;
+02/oct./25 2:48 PM;Err_Sync;
+02/oct./25 2:36 PM;Fichier_corrompu;
+02/oct./25 1:55 PM;Fichier_corrompu;
+02/oct./25 12:01 PM;Doublons;
+02/oct./25 11:57 AM;Err_Sync;
+02/oct./25 11:53 AM;Doublons;
+02/oct./25 11:43 AM;Fichier_corrompu;
+02/oct./25 11:36 AM;Doublons;
+01/oct./25 6:39 PM;Fichier_corrompu;
+01/oct./25 5:56 PM;Moins_de_fichier;
+01/oct./25 5:18 PM;Doublons;
+01/oct./25 3:10 PM;Doublons;
+01/oct./25 5:17 AM;Moins_de_fichier;
+01/oct./25 5:00 AM;MD5;
+01/oct./25 4:54 AM;Fichier_corrompu;
+01/oct./25 4:53 AM;MD5;
+01/oct./25 4:52 AM;Fichier_corrompu;
+01/oct./25 4:43 AM;MD5;
+30/sept./25 5:53 PM;Err_Sync;
+30/sept./25 5:05 PM;Doublons;
+30/sept./25 3:40 PM;Doublons;
+30/sept./25 3:22 PM;Dif_de_format;Doublons
+30/sept./25 2:55 PM;Moins_de_fichier;
+30/sept./25 12:26 PM;Fichier_corrompu;
+30/sept./25 10:24 AM;Doublons;
+30/sept./25 9:48 AM;Doublons;
+30/sept./25 8:57 AM;Fichier_corrompu;
+30/sept./25 7:56 AM;Doublons;
+29/sept./25 7:14 PM;Err_Sync;
+29/sept./25 4:06 PM;Doublons;
+29/sept./25 4:04 PM;Doublons;
+29/sept./25 4:04 PM;Fichier_corrompu;
+29/sept./25 11:48 AM;Doublons;
+29/sept./25 10:37 AM;Doublons;
+29/sept./25 5:21 AM;Doublons;
+26/sept./25 5:35 PM;Err_Sync;
+26/sept./25 5:00 PM;Err_Sync;
+26/sept./25 3:19 PM;Err_Sync;
+26/sept./25 3:18 PM;Err_Sync;
+26/sept./25 3:17 PM;Doublons;
+26/sept./25 2:32 PM;Fichier_corrompu;
+26/sept./25 12:21 PM;MD5;
+26/sept./25 11:45 AM;Doublons;
+26/sept./25 11:18 AM;Doublons;
+26/sept./25 11:01 AM;Doublons;MD5`;
+
+        // Function to parse the specific CSV format and aggregated it by date
+        function processCSV(csvText) {
+            const lines = csvText.trim().split('\n');
+            // Remove header
+            lines.shift();
+
+            const monthMap = {
+                "janv": "01", "févr": "02", "mars": "03", "avr": "04", "mai": "05", "juin": "06",
+                "juil": "07", "août": "08", "sept": "09", "oct": "10", "nov": "11", "déc": "12"
+            };
+
+            const data = {};
+
+            lines.forEach(line => {
+                if(!line.trim()) return;
+                
+                const parts = line.split(';');
+                if (parts.length < 2) return;
+
+                // 1. Parse Date: "24/nov./25 5:23 PM" -> "2025-11-24"
+                const fullDateStr = parts[0].trim();
+                const datePart = fullDateStr.split(' ')[0]; // "24/nov./25"
+                const dateSegments = datePart.split('/');
+                
+                if (dateSegments.length < 3) return;
+
+                const day = dateSegments[0].padStart(2, '0');
+                const rawMonth = dateSegments[1].toLowerCase().replace('.', '');
+                const month = monthMap[rawMonth];
+                const year = "20" + dateSegments[2];
+
+                if (!month) return; // invalid date format
+
+                const isoDate = `${year}-${month}-${day}`;
+
+                if (!data[isoDate]) {
+                    data[isoDate] = {};
+                }
+
+                // 2. Parse Tags (Combine 2nd and 3rd column, handle multitag in one cell)
+                let tagString = parts.slice(1).join(';'); // Combine all tag columns
+                const tags = tagString.split(/;| /).filter(t => t.trim().length > 0 && t.trim() !== 'PM' && t.trim() !== 'AM'); 
+                // Note: simplified splitting on semicolon. 
+                // Specific handling for the provided csv format where tags are sometimes fused or in next col.
+                // The CSV provided looks like: value;tag1;tag2 OR value;tag1;[empty]
+                
+                // Let's re-parse properly based on CSV structure
+                // Column 1: Date, Column 2: Tag(s), Column 3: Optional Tag
+                const tagsToCount = [];
+                const col2 = parts[1] ? parts[1].trim() : "";
+                const col3 = parts[2] ? parts[2].trim() : "";
+                
+                // Helper to split internal delimiters like "Dif_de_format;Doublons"
+                const extract = (str) => str.split(';').filter(s => s.trim().length > 0);
+                
+                extract(col2).forEach(t => tagsToCount.push(t));
+                extract(col3).forEach(t => tagsToCount.push(t));
+
+                tagsToCount.forEach(tag => {
+                    const cleanTag = tag.trim();
+                    if (cleanTag) {
+                        data[isoDate][cleanTag] = (data[isoDate][cleanTag] || 0) + 1;
+                    }
+                });
+            });
+
+            return data;
+        }
+
+        const rawData = processCSV(csvContent);
+
+        document.addEventListener('DOMContentLoaded', function () {
+            // --- Data Processing ---
+            const allCategories = [...new Set(Object.values(rawData).flatMap(day => Object.keys(day)))];
+            const parseDate = d3.timeParse("%Y-%m-%d");
+
+            let processedData = Object.entries(rawData).map(([dateStr, values]) => {
+                const entry = { date: parseDate(dateStr) };
+                allCategories.forEach(cat => {
+                    entry[cat] = values[cat] || 0;
+                });
+                return entry;
+            }).sort((a, b) => a.date - b.date);
+
+            const colorScale = d3.scaleOrdinal()
+                .domain(allCategories)
+                .range(["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf"]);
+
+            const tooltip = d3.select("#tooltip");
+            let currentBarChartCategory = null;
+
+            // --- Initial Setup ---
+            function initialize() {
+                setupFilters();
+                setupSelectors();
+                setupEventListeners();
+                updateDashboard();
+            }
+
+            function setupFilters() {
+                if (processedData.length === 0) return;
+                const dateExtent = d3.extent(processedData, d => d.date);
+                d3.select("#startDate").attr("min", d3.timeFormat("%Y-%m-%d")(dateExtent[0])).attr("value", d3.timeFormat("%Y-%m-%d")(dateExtent[0]));
+                d3.select("#endDate").attr("max", d3.timeFormat("%Y-%m-%d")(dateExtent[1])).attr("value", d3.timeFormat("%Y-%m-%d")(dateExtent[1]));
+            }
+
+            function setupSelectors() {
+                const weeks = [...new Set(processedData.map(d => d3.timeFormat("%Y-W%U")(d.date)))].sort();
+                const weekSelector = d3.select("#week-selector");
+                weekSelector.selectAll("option")
+                    .data(weeks)
+                    .enter()
+                    .append("option")
+                    .attr("value", d => d)
+                    .text(d => `Week of ${d3.timeParse("%Y-W%U")(d).toLocaleDateString()}`);
+                if (weeks.length > 0) weekSelector.property("value", weeks[weeks.length - 1]);
+
+                const months = [...new Set(processedData.map(d => d3.timeFormat("%Y-%m")(d.date)))].sort();
+                const monthSelector = d3.select("#month-selector");
+                monthSelector.selectAll("option")
+                    .data(months)
+                    .enter()
+                    .append("option")
+                    .attr("value", d => d)
+                    .text(d => d3.timeParse("%Y-%m")(d).toLocaleString('default', { month: 'long', year: 'numeric' }));
+                if (months.length > 0) monthSelector.property("value", months[months.length - 1]);
+            }
+
+            function setupEventListeners() {
+                d3.select("#startDate").on("change", updateDashboard);
+                d3.select("#endDate").on("change", updateDashboard);
+                d3.select("#resetFilters").on("click", () => {
+                    setupFilters();
+                    updateDashboard();
+                });
+                d3.select("#week-selector").on("change", updateDashboard);
+                d3.select("#month-selector").on("change", updateDashboard);
+                d3.select("#backToOverviewBtn").on("click", () => {
+                    currentBarChartCategory = null;
+                    d3.select("#backToOverviewBtn").classed("hidden", true);
+                    updateDashboard();
+                });
+                d3.select("#downloadBtn").on("click", downloadHTML);
+                
+                const sidebar = document.getElementById('sidebar');
+                const toggle = document.getElementById('sidebar-toggle');
+                toggle.addEventListener('click', () => {
+                    sidebar.classList.toggle('-translate-x-full');
+                });
+
+                window.addEventListener('resize', updateDashboard);
+            }
+
+            // --- Main Update Function ---
+            function updateDashboard() {
+                if (processedData.length === 0) return;
+                const startDateStr = d3.select("#startDate").property("value");
+                const endDateStr = d3.select("#endDate").property("value");
+
+                if (!startDateStr || !endDateStr) return;
+
+                const startDate = parseDate(startDateStr);
+                const endDate = parseDate(endDateStr);
+                
+                const filteredData = processedData.filter(d => d.date >= startDate && d.date <= endDate);
+
+                drawBarChart(filteredData);
+                drawLineChart(filteredData);
+                drawPieCharts(processedData); 
+            }
+
+            // --- Chart Drawing Functions ---
+            function drawBarChart(data) {
+                const container = d3.select("#bar-chart");
+                container.html("");
+                const bounds = container.node().getBoundingClientRect();
+                const margin = { top: 20, right: 30, bottom: 100, left: 60 };
+                const width = bounds.width - margin.left - margin.right;
+                const height = 400 - margin.top - margin.bottom;
+
+                const svg = container.append("svg")
+                    .attr("width", width + margin.left + margin.right)
+                    .attr("height", height + margin.top + margin.bottom)
+                    .append("g")
+                    .attr("transform", `translate(${margin.left},${margin.top})`);
+
+                let chartData, x, y, xAxis, yAxis;
+
+                if (currentBarChartCategory) {
+                    // Detail view
+                    chartData = data.map(d => ({ date: d.date, value: d[currentBarChartCategory] })).filter(d => d.value > 0);
+                    x = d3.scaleTime().range([0, width]).domain(d3.extent(chartData, d => d.date));
+                    y = d3.scaleLinear().range([height, 0]).domain([0, d3.max(chartData, d => d.value) || 0]);
+                    xAxis = d3.axisBottom(x).ticks(10).tickFormat(d3.timeFormat("%b %d"));
+                    yAxis = d3.axisLeft(y).ticks(5).tickFormat(d3.format("d"));
+                } else {
+                    // Overview view
+                    chartData = allCategories.map(cat => ({
+                        category: cat,
+                        value: d3.sum(data, d => d[cat])
+                    })).sort((a, b) => b.value - a.value);
+                    x = d3.scaleBand().range([0, width]).padding(0.1).domain(chartData.map(d => d.category));
+                    y = d3.scaleLinear().range([height, 0]).domain([0, d3.max(chartData, d => d.value) || 0]);
+                    xAxis = d3.axisBottom(x);
+                    yAxis = d3.axisLeft(y).ticks(5).tickFormat(d3.format("d"));
+                }
+
+                svg.append("g")
+                    .attr("class", "x-axis")
+                    .attr("transform", `translate(0,${height})`)
+                    .call(xAxis)
+                    .selectAll("text")
+                    .attr("transform", "translate(-10,0)rotate(-45)")
+                    .style("text-anchor", "end");
+
+                svg.append("g").attr("class", "y-axis").call(yAxis);
+                
+                // Add Y-axis grid lines
+                svg.append("g")
+                    .attr("class", "grid")
+                    .call(d3.axisLeft(y).tickSize(-width).tickFormat(""))
+                    .selectAll("line").attr("class", "grid-line");
+
+                svg.selectAll(".bar")
+                    .data(chartData)
+                    .enter().append("rect")
+                    .attr("class", "bar")
+                    .attr("x", d => currentBarChartCategory ? x(d.date) - (width/Math.max(1, chartData.length))/2 : x(d.category))
+                    .attr("width", currentBarChartCategory ? Math.max(2, width/chartData.length - 2) : x.bandwidth())
+                    .attr("y", d => y(d.value))
+                    .attr("height", d => height - y(d.value))
+                    .attr("fill", d => colorScale(currentBarChartCategory || d.category))
+                    .style("cursor", currentBarChartCategory ? "default" : "pointer")
+                    .on("mouseover", (event, d) => {
+                        tooltip.style("opacity", 1);
+                    })
+                    .on("mousemove", (event, d) => {
+                        const text = currentBarChartCategory 
+                            ? `${d3.timeFormat("%Y-%m-%d")(d.date)}: ${d.value}`
+                            : `${d.category}: ${d.value}`;
+                        tooltip.html(text)
+                            .style("left", (event.pageX + 10) + "px")
+                            .style("top", (event.pageY - 28) + "px");
+                    })
+                    .on("mouseout", () => {
+                        tooltip.style("opacity", 0);
+                    })
+                    .on("click", (event, d) => {
+                        if (!currentBarChartCategory) {
+                            currentBarChartCategory = d.category;
+                            d3.select("#backToOverviewBtn").classed("hidden", false);
+                            updateDashboard();
+                        }
+                    });
+            }
+
+            function drawLineChart(data) {
+                const container = d3.select("#line-chart");
+                container.html("");
+                const bounds = container.node().getBoundingClientRect();
+                const margin = { top: 20, right: 30, bottom: 30, left: 60 };
+                const width = bounds.width - margin.left - margin.right;
+                const height = 400 - margin.top - margin.bottom;
+
+                const svg = container.append("svg")
+                    .attr("width", width + margin.left + margin.right)
+                    .attr("height", height + margin.top + margin.bottom)
+                    .append("g")
+                    .attr("transform", `translate(${margin.left},${margin.top})`);
+
+                const series = allCategories.map(cat => ({
+                    name: cat,
+                    values: data.map(d => ({ date: d.date, value: d[cat] }))
+                }));
+
+                const x = d3.scaleTime()
+                    .domain(d3.extent(data, d => d.date))
+                    .range([0, width]);
+
+                const yMax = d3.max(series, s => d3.max(s.values, d => d.value));
+                const y = d3.scaleLinear()
+                    .domain([0, yMax || 1])
+                    .range([height, 0]).nice();
+
+                svg.append("g")
+                    .attr("transform", `translate(0,${height})`)
+                    .call(d3.axisBottom(x));
+
+                svg.append("g").call(d3.axisLeft(y).ticks(5).tickFormat(d3.format("d")));
+                
+                svg.append("g")
+                    .attr("class", "grid")
+                    .call(d3.axisLeft(y).tickSize(-width).tickFormat(""))
+                    .selectAll("line").attr("class", "grid-line");
+
+                const line = d3.line()
+                    .x(d => x(d.date))
+                    .y(d => y(d.value))
+                    .curve(d3.curveMonotoneX); // Smooth lines
+
+                svg.selectAll(".line-path")
+                    .data(series)
+                    .enter().append("path")
+                    .attr("class", d => `line-path line-${d.name.replace(/\s+/g, '-')}`)
+                    .attr("d", d => line(d.values))
+                    .style("stroke", d => colorScale(d.name))
+                    .style("fill", "none")
+                    .style("stroke-width", 2);
+
+                // Legend
+                const legendContainer = d3.select("#line-chart-legend");
+                legendContainer.html("");
+                legendContainer.selectAll(".legend-item")
+                    .data(allCategories)
+                    .enter().append("div")
+                    .attr("class", "legend-item flex items-center")
+                    .on("click", (event, d) => {
+                        const isActive = !d3.select(event.currentTarget).classed("faded");
+                        d3.select(event.currentTarget).classed("faded", isActive);
+                        svg.selectAll(`.line-${d.replace(/\s+/g, '-')}`).style("display", isActive ? "none" : "initial");
+                    })
+                    .each(function(d) {
+                        d3.select(this).append("div")
+                            .attr("class", "w-4 h-4 rounded-full mr-2")
+                            .style("background-color", colorScale(d));
+                        d3.select(this).append("span").text(d);
+                    });
+            }
+
+            function drawPieCharts(fullData) {
+                // Weekly Pie
+                const selectedWeek = d3.select("#week-selector").property("value");
+                if (selectedWeek) {
+                    const weekData = fullData.filter(d => d3.timeFormat("%Y-W%U")(d.date) === selectedWeek);
+                    const weekTotals = aggregateData(weekData);
+                    drawSinglePie("#pie-chart-week", weekTotals);
+                }
+
+                // Monthly Pie
+                const selectedMonth = d3.select("#month-selector").property("value");
+                if (selectedMonth) {
+                    const monthData = fullData.filter(d => d3.timeFormat("%Y-%m")(d.date) === selectedMonth);
+                    const monthTotals = aggregateData(monthData);
+                    drawSinglePie("#pie-chart-month", monthTotals);
+                }
+            }
+
+            function aggregateData(data) {
+                const totals = {};
+                allCategories.forEach(cat => {
+                    totals[cat] = d3.sum(data, d => d[cat]);
+                });
+                return Object.entries(totals).map(([key, value]) => ({ category: key, value: value })).filter(d => d.value > 0);
+            }
+
+            function drawSinglePie(selector, data) {
+                const container = d3.select(selector);
+                container.html("");
+                const bounds = container.node().getBoundingClientRect();
+                const width = bounds.width;
+                const height = 300;
+                const radius = Math.min(width, height) / 2 - 10;
+
+                const svg = container.append("svg")
+                    .attr("width", width)
+                    .attr("height", height)
+                    .append("g")
+                    .attr("transform", `translate(${width / 2},${height / 2})`);
+
+                if (data.length === 0) {
+                    svg.append("text")
+                        .attr("text-anchor", "middle")
+                        .attr("dy", "0.35em")
+                        .text("No data for this period.");
+                    return;
+                }
+
+                const pie = d3.pie().value(d => d.value).sort(null);
+                const arc = d3.arc().innerRadius(0).outerRadius(radius);
+
+                const path = svg.selectAll("path")
+                    .data(pie(data))
+                    .enter().append("path")
+                    .attr("d", arc)
+                    .attr("fill", d => colorScale(d.data.category))
+                    .attr("stroke", "white")
+                    .style("stroke-width", "2px")
+                    .on("mouseover", (event, d) => {
+                        tooltip.style("opacity", 1);
+                        d3.select(event.currentTarget).style("opacity", 0.8);
+                    })
+                    .on("mousemove", (event, d) => {
+                        const total = d3.sum(data, item => item.value);
+                        const percent = (d.data.value / total * 100).toFixed(1);
+                        tooltip.html(`${d.data.category}: ${d.data.value} (${percent}%)`)
+                            .style("left", (event.pageX + 10) + "px")
+                            .style("top", (event.pageY - 28) + "px");
+                    })
+                    .on("mouseout", (event, d) => {
+                        tooltip.style("opacity", 0);
+                        d3.select(event.currentTarget).style("opacity", 1);
+                    });
+            }
+
+            function downloadHTML() {
+                const htmlContent = document.documentElement.outerHTML;
+                const blob = new Blob([htmlContent], { type: 'text/html' });
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = 'jira_dashboard.html';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+            }
+
+            initialize();
+        });
+    </script>
+</body>
+</html>
