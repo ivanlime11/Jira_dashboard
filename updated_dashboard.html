@@ -1,0 +1,1738 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jira Insights - Feb 2026</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+        :root {
+            --bg:            #070b14;
+            --surface:       #0d1425;
+            --surface-2:     #141e35;
+            --surface-3:     #1c2a45;
+            --primary:       #00d9ef;
+            --primary-dim:   rgba(0,217,239,0.12);
+            --accent:        #7c5af0;
+            --accent-dim:    rgba(124,90,240,0.12);
+            --success:       #00e096;
+            --danger:        #ff4d6d;
+            --text:          #d8e4f0;
+            --text-muted:    #6a85a0;
+            --border:        rgba(0,217,239,0.1);
+            --border-subtle: rgba(255,255,255,0.05);
+            /* kept for backwards compat with existing JS/HTML that uses these tokens */
+            --primary-dark:   #00d9ef;
+            --primary-light:  #0d1425;
+            --secondary-dark: #7c5af0;
+            --secondary-light:#1c1040;
+            --tertiary-dark:  #6a85a0;
+            --tertiary-light: #1c2a45;
+            --background:     #070b14;
+            --neutral-dark:   #d8e4f0;
+            --neutral-light:  #0d1425;
+        }
+        * { box-sizing: border-box; }
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg);
+            background-image:
+                radial-gradient(ellipse 80% 40% at 15% -5%, rgba(0,217,239,0.07) 0%, transparent 60%),
+                radial-gradient(ellipse 60% 40% at 85% 105%, rgba(124,90,240,0.07) 0%, transparent 60%);
+            background-attachment: fixed;
+            color: var(--text);
+        }
+        ::-webkit-scrollbar { width: 4px; height: 4px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(0,217,239,0.2); border-radius: 99px; }
+
+        .chart-container {
+            background: rgba(13,20,37,0.7);
+            backdrop-filter: blur(24px);
+            -webkit-backdrop-filter: blur(24px);
+            border-radius: 20px;
+            padding: 1.5rem;
+            border: 1px solid var(--border);
+            box-shadow: 0 8px 32px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.04);
+            transition: border-color 0.25s, box-shadow 0.25s;
+        }
+        .chart-container:hover {
+            border-color: rgba(0,217,239,0.22);
+            box-shadow: 0 8px 40px rgba(0,0,0,0.55), 0 0 0 1px rgba(0,217,239,0.08), inset 0 1px 0 rgba(255,255,255,0.06);
+        }
+        .tooltip {
+            position: absolute;
+            text-align: center;
+            padding: 0.45rem 0.75rem;
+            font-size: 0.78rem;
+            font-weight: 500;
+            background: rgba(10,16,28,0.95);
+            backdrop-filter: blur(16px);
+            color: var(--text);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.15s;
+            z-index: 100;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.6);
+            white-space: nowrap;
+        }
+        .axis path, .axis line {
+            fill: none;
+            stroke: rgba(255,255,255,0.07);
+            shape-rendering: crispEdges;
+        }
+        .axis text { font-size: 11px; fill: var(--text-muted); }
+        .grid-line { stroke: rgba(255,255,255,0.04); stroke-opacity: 1; shape-rendering: crispEdges; }
+
+        #sidebar {
+            transition: transform 0.3s ease-in-out;
+            background: rgba(5,9,18,0.97) !important;
+            backdrop-filter: blur(24px);
+            -webkit-backdrop-filter: blur(24px);
+            border-right: 1px solid var(--border) !important;
+        }
+        .sidebar-toggle { z-index: 50; }
+
+        header {
+            background: rgba(13,20,37,0.8) !important;
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid var(--border-subtle) !important;
+        }
+
+        h1, h2, h3 { letter-spacing: -0.01em; }
+        h2 { background: linear-gradient(90deg, var(--primary), var(--accent)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+        h3 { color: var(--text) !important; }
+
+        .bar:hover { opacity: 0.85; filter: brightness(1.1); }
+        .line { fill: none; stroke-width: 2.5px; }
+        .dot { stroke-width: 2px; }
+        .legend-item { cursor: pointer; transition: opacity 0.2s; font-size: 0.78rem; color: var(--text-muted); }
+        .legend-item.faded { opacity: 0.2; }
+
+        /* KPI card shimmer */
+        #kpi-cards .kpi-card {
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+            position: relative; overflow: hidden;
+        }
+        #kpi-cards .kpi-card::after {
+            content: '';
+            position: absolute; top: 0; left: -100%;
+            width: 60%; height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.04), transparent);
+            transition: left 0.5s;
+        }
+        #kpi-cards .kpi-card:hover { transform: translateY(-3px); box-shadow: 0 12px 32px rgba(0,0,0,0.5); }
+        #kpi-cards .kpi-card:hover::after { left: 150%; }
+
+        #heatmap-chart rect:hover { opacity: 0.75; cursor: default; }
+        #category-stats-panel > .chart-container { background: rgba(0,217,239,0.04); border-color: rgba(0,217,239,0.18); }
+        #category-stats-panel .chart-container { border-radius: 14px; }
+
+        .evo-tab { transition: background-color 0.15s, color 0.15s; }
+        .zoom-rect { cursor: grab; }
+        .zoom-rect:active { cursor: grabbing; }
+
+        /* Select / input dark overrides */
+        select, input[type="date"] {
+            background: var(--surface-2) !important;
+            color: var(--text) !important;
+            border: 1px solid rgba(255,255,255,0.1) !important;
+            border-radius: 10px;
+        }
+        select option { background: var(--surface-2); color: var(--text); }
+        input[type="text"], input[type="email"], input[type="password"], textarea {
+            background: rgba(255,255,255,0.04) !important;
+            color: var(--text) !important;
+        }
+        table { border-collapse: collapse; }
+        tr.border-b { border-bottom: 1px solid rgba(255,255,255,0.05) !important; }
+        tr:hover { background: rgba(255,255,255,0.02) !important; }
+        th { color: var(--text-muted) !important; }
+        td { color: var(--text) !important; }
+    </style>
+</head>
+<body class="overflow-x-hidden">
+    <div class="flex h-screen" style="background-color: var(--bg);">
+        <!-- Sidebar -->
+        <aside id="sidebar" class="fixed top-0 left-0 z-40 w-64 h-screen transform -translate-x-full md:translate-x-0">
+            <div class="p-6">
+                <p class="text-xs font-semibold uppercase tracking-widest mb-1" style="color:var(--primary)">Analytics</p>
+                <h1 class="text-2xl font-extrabold" style="color:var(--text)">Dashboard</h1>
+                <p class="text-xs mt-1" style="color:var(--text-muted)">Jira Data Analysis</p>
+            </div>
+            <!-- Jira Connection -->
+            <div id="jiraSection" class="mt-0 px-4 pb-4" style="border-bottom:1px solid rgba(255,255,255,0.06)">
+                <button id="jiraToggle" class="w-full flex justify-between items-center text-xs uppercase font-semibold tracking-wider py-2"
+                        style="color: var(--primary);">
+                    Data Source <span id="jiraToggleIcon">▶</span>
+                </button>
+                <div id="jiraPanel" class="hidden space-y-2 mt-2">
+                    <input id="jiraUrl" type="text" placeholder="https://xxx.atlassian.net"
+                           class="w-full bg-transparent border border-gray-600 rounded px-2 py-1 text-xs text-white placeholder-gray-400 focus:outline-none focus:border-white">
+                    <input id="jiraEmail" type="email" placeholder="you@company.com"
+                           class="w-full bg-transparent border border-gray-600 rounded px-2 py-1 text-xs text-white placeholder-gray-400 focus:outline-none focus:border-white">
+                    <input id="jiraToken" type="password" placeholder="API token"
+                           class="w-full bg-transparent border border-gray-600 rounded px-2 py-1 text-xs text-white placeholder-gray-400 focus:outline-none focus:border-white">
+                    <textarea id="jiraJql" rows="2" placeholder="project = XYZ ORDER BY created DESC"
+                              class="w-full bg-transparent border border-gray-600 rounded px-2 py-1 text-xs text-white placeholder-gray-400 focus:outline-none focus:border-white resize-none"></textarea>
+                    <label class="flex items-center gap-2 text-xs text-gray-300">
+                        <input type="checkbox" id="jiraSave"> Remember credentials
+                    </label>
+                    <button id="fetchJiraBtn" class="w-full py-2 text-sm font-semibold rounded-xl text-white"
+                            style="background:linear-gradient(135deg,#004d59,#002535);border:1px solid rgba(0,217,239,0.3)">
+                        ⬇ Fetch from Jira
+                    </button>
+                    <p id="jiraStatus" class="text-xs text-center" style="color: var(--tertiary-light);"></p>
+                    <p class="text-xs opacity-60 text-gray-300">Requires <code>python jira_proxy.py</code> running on :8765</p>
+                </div>
+            </div>
+
+            <nav class="mt-4 px-4">
+                <h3 class="px-2 text-xs uppercase font-semibold tracking-widest" style="color: var(--primary);">Filters</h3>
+                <div class="mt-4 space-y-4">
+                    <div>
+                        <label for="startDate" class="block text-sm font-medium" style="color: var(--secondary-light);">Start Date</label>
+                        <input type="date" id="startDate" class="mt-1 block w-full bg-transparent border-0 border-b-2 border-gray-500 focus:ring-0 focus:border-white text-white p-1">
+                    </div>
+                    <div>
+                        <label for="endDate" class="block text-sm font-medium" style="color: var(--secondary-light);">End Date</label>
+                        <input type="date" id="endDate" class="mt-1 block w-full bg-transparent border-0 border-b-2 border-gray-500 focus:ring-0 focus:border-white text-white p-1">
+                    </div>
+                    <button id="resetFilters" class="w-full text-center py-2 px-4 rounded-xl text-sm font-semibold" style="background:rgba(255,255,255,0.06);color:var(--text);border:1px solid rgba(255,255,255,0.08)">Reset Filters</button>
+                </div>
+            </nav>
+            <div class="absolute bottom-4 left-0 w-full px-6">
+                <button id="downloadBtn" class="w-full flex items-center justify-center py-2 px-4 rounded-xl text-sm font-semibold text-white" style="background:linear-gradient(135deg,#2d1e6e,#0d0825);border:1px solid rgba(124,90,240,0.3)">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
+                        <path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd" />
+                    </svg>
+                    Download HTML
+                </button>
+            </div>
+        </aside>
+
+        <!-- Main content -->
+        <div class="flex-1 flex flex-col overflow-hidden md:ml-64">
+            <header class="flex justify-between items-center p-4 shadow-md md:shadow-none">
+                <button id="sidebar-toggle" class="focus:outline-none md:hidden" style="color:var(--text-muted)">
+                    <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M4 6H20M4 12H20M4 18H11Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>
+                    </svg>
+                </button>
+                <h2 class="text-xl font-semibold text-gray-700" style="color: var(--primary-dark);">Data Overview <span id="overview-range" style="font-size:0.75em;font-weight:400;opacity:0.65;"></span></h2>
+                <div></div>
+            </header>
+            <main class="flex-1 overflow-x-hidden overflow-y-auto p-4 md:p-6 lg:p-8">
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <!-- KPI Cards -->
+                    <div id="kpi-cards" class="lg:col-span-2 grid grid-cols-2 lg:grid-cols-4 gap-4">
+                        <div class="kpi-card rounded-2xl p-5" style="background:linear-gradient(135deg,#004d59 0%,#001c22 100%);border:1px solid rgba(0,217,239,0.25);">
+                            <p class="text-xs font-semibold uppercase tracking-widest" style="color:rgba(0,217,239,0.7)">Total Issues</p>
+                            <p class="text-4xl font-extrabold mt-2" style="color:#00d9ef;text-shadow:0 0 20px rgba(0,217,239,0.4)" id="kpi-total">—</p>
+                        </div>
+                        <div class="kpi-card rounded-2xl p-5" style="background:linear-gradient(135deg,#2d1e6e 0%,#0d0825 100%);border:1px solid rgba(124,90,240,0.25);">
+                            <p class="text-xs font-semibold uppercase tracking-widest" style="color:rgba(124,90,240,0.8)">This Week</p>
+                            <p class="text-4xl font-extrabold mt-2" style="color:#a78bfa;text-shadow:0 0 20px rgba(124,90,240,0.4)" id="kpi-week">—</p>
+                        </div>
+                        <div class="kpi-card rounded-2xl p-5" style="background:linear-gradient(135deg,#003d30 0%,#001510 100%);border:1px solid rgba(0,224,150,0.25);">
+                            <p class="text-xs font-semibold uppercase tracking-widest" style="color:rgba(0,224,150,0.7)">Most Active</p>
+                            <p class="text-lg font-bold mt-2" style="color:#00e096" id="kpi-top-cat">—</p>
+                            <p class="text-xs mt-1" style="color:rgba(0,224,150,0.6)" id="kpi-top-count"></p>
+                        </div>
+                        <div class="kpi-card rounded-2xl p-5" style="background:linear-gradient(135deg,#1e0d40 0%,#0a0620 100%);border:1px solid rgba(124,90,240,0.25);">
+                            <p class="text-xs font-semibold uppercase tracking-widest" style="color:rgba(167,139,250,0.7)">Trend</p>
+                            <p class="text-4xl font-extrabold mt-2" id="kpi-trend" style="color:#a78bfa">—</p>
+                        </div>
+                    </div>
+
+                    <!-- Evolution Card (Weekly / Monthly / Total) -->
+                    <div class="chart-container lg:col-span-2">
+                        <div class="flex justify-between items-center mb-4">
+                            <div class="flex items-center gap-3">
+                                <h3 class="text-lg font-semibold" style="color: var(--primary-dark);">Evolution</h3>
+                                <div class="flex rounded overflow-hidden text-xs font-medium" style="border:1px solid var(--primary-dark)">
+                                    <button id="evoWeeklyBtn" class="evo-tab py-1 px-3"
+                                            style="background-color:var(--primary-dark);color:white;">Weekly</button>
+                                    <button id="evoMonthlyBtn" class="evo-tab py-1 px-3"
+                                            style="color:var(--primary-dark);">Monthly</button>
+                                    <button id="evoTotalBtn" class="evo-tab py-1 px-3"
+                                            style="color:var(--primary-dark);">Total</button>
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-3">
+                                <button id="toggleInactiveBtn" class="text-xs font-medium py-1 px-3 rounded border"
+                                        style="border-color:var(--tertiary-dark);color:var(--tertiary-dark);">Show inactive (0)</button>
+                                <button id="backToOverviewBtn" class="hidden text-sm font-medium py-1 px-3 rounded"
+                                        style="background-color: var(--tertiary-light); color: var(--tertiary-dark);">&larr; Back to Overview</button>
+                                <span id="evolutionRange" class="text-xs" style="color: var(--tertiary-dark);"></span>
+                            </div>
+                        </div>
+                        <div id="weekly-evolution" class="overflow-x-auto"></div>
+                        <div id="monthly-evolution" class="overflow-x-auto hidden"></div>
+                        <div id="total-evolution" class="hidden">
+                            <div id="bar-chart"></div>
+                        </div>
+                    </div>
+
+                    <!-- Category Stats Panel -->
+                    <div id="category-stats-panel" class="chart-container lg:col-span-2 hidden">
+                        <h3 class="text-lg font-semibold mb-4" style="color: var(--primary-dark);" id="stats-cat-title">Category Details</h3>
+                        <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                            <div class="chart-container text-center">
+                                <p class="text-xs uppercase tracking-wider opacity-60">Total Issues</p>
+                                <p class="text-2xl font-bold mt-1" style="color:var(--primary-dark)" id="stats-total">—</p>
+                            </div>
+                            <div class="chart-container text-center">
+                                <p class="text-xs uppercase tracking-wider opacity-60">Avg / Week</p>
+                                <p class="text-2xl font-bold mt-1" style="color:var(--primary-dark)" id="stats-avg-week">—</p>
+                            </div>
+                            <div class="chart-container text-center">
+                                <p class="text-xs uppercase tracking-wider opacity-60">Peak Week</p>
+                                <p class="text-2xl font-bold mt-1" style="color:var(--primary-dark)" id="stats-peak">—</p>
+                                <p class="text-xs opacity-60 mt-1" id="stats-peak-label"></p>
+                            </div>
+                            <div class="chart-container text-center">
+                                <p class="text-xs uppercase tracking-wider opacity-60">Days Since Last</p>
+                                <p class="text-2xl font-bold mt-1" style="color:var(--primary-dark)" id="stats-days-since">—</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Line Chart -->
+                    <div class="chart-container lg:col-span-2">
+                        <div class="flex justify-between items-center mb-2">
+                            <h3 class="text-lg font-semibold" style="color: var(--primary-dark);">Trends Over Time</h3>
+                            <div class="flex items-center gap-2">
+                                <button id="resetZoomBtn" class="hidden text-xs font-medium py-1 px-3 rounded"
+                                        style="background-color:var(--tertiary-light);color:var(--tertiary-dark);">↺ Reset zoom</button>
+                                <button id="toggleRollingAvgBtn" class="text-xs font-medium py-1 px-3 rounded border"
+                                        style="border-color:var(--secondary-dark);color:var(--secondary-dark);">7-day rolling avg</button>
+                            </div>
+                        </div>
+                        <div id="line-chart"></div>
+                        <div id="line-chart-legend" class="flex flex-wrap justify-center mt-4 gap-x-4 gap-y-2"></div>
+                    </div>
+
+                    <!-- Pie Charts -->
+                    <div class="chart-container">
+                        <h3 class="text-lg font-semibold" style="color: var(--primary-dark);">Weekly Breakdown</h3>
+                        <select id="week-selector" class="mt-2 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md"></select>
+                        <div id="pie-chart-week" class="mt-4"></div>
+                    </div>
+                    <div class="chart-container">
+                        <h3 class="text-lg font-semibold" style="color: var(--primary-dark);">Monthly Breakdown</h3>
+                        <select id="month-selector" class="mt-2 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md"></select>
+                        <div id="pie-chart-month" class="mt-4"></div>
+                    </div>
+
+                    <!-- Heatmap Calendar -->
+                    <div class="chart-container lg:col-span-2">
+                        <div class="flex justify-between items-center mb-4">
+                            <h3 class="text-lg font-semibold" style="color: var(--primary-dark);">Activity Heatmap</h3>
+                            <span id="heatmap-range" class="text-xs" style="color: var(--tertiary-dark);"></span>
+                        </div>
+                        <div id="heatmap-chart" class="overflow-x-auto"></div>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <div id="tooltip" class="tooltip"></div>
+
+    <script>
+        // CSV Data Embedded directly
+        const csvContent = `Création;Étiquettes;Étiquettes
+24/févr./26 9:54 AM;MD5;
+23/févr./26 11:15 AM;Fichier_corrompu;
+23/févr./26 6:01 AM;Doublons;
+20/févr./26 4:25 PM;Doublons;
+20/févr./26 3:13 PM;Doublons;
+20/févr./26 2:56 PM;Doublons;Fichier_corrompu
+20/févr./26 10:53 AM;Doublons;
+20/févr./26 10:17 AM;MD5;
+20/févr./26 10:16 AM;Fichier_corrompu;
+19/févr./26 5:33 PM;Doublons;
+19/févr./26 5:31 PM;Doublons;
+19/févr./26 12:42 PM;Fichier_corrompu;
+19/févr./26 11:46 AM;Doublons;
+19/févr./26 11:20 AM;Doublons;
+18/févr./26 3:53 PM;Err_Sync;
+18/févr./26 12:32 PM;Fichier_corrompu;
+18/févr./26 12:31 PM;Doublons;
+17/févr./26 4:58 PM;Fichier_corrompu;
+17/févr./26 4:54 PM;MD5;
+17/févr./26 3:41 PM;Fichier_corrompu;
+17/févr./26 3:08 PM;Fichier_corrompu;
+17/févr./26 12:14 PM;Fichier_corrompu;
+17/févr./26 11:22 AM;Err_Sync;
+17/févr./26 11:17 AM;Doublons;
+17/févr./26 11:16 AM;Fichier_corrompu;
+17/févr./26 10:05 AM;Fichier_corrompu;
+16/févr./26 4:24 PM;Emoji_named_file;
+16/févr./26 2:44 PM;Fichier_corrompu;
+16/févr./26 12:06 PM;MD5;
+16/févr./26 11:48 AM;Emoji_named_file;
+16/févr./26 11:43 AM;Emoji_named_file;
+16/févr./26 11:42 AM;Emoji_named_file;
+16/févr./26 10:50 AM;Doublons;
+13/févr./26 5:30 PM;Doublons;
+13/févr./26 3:22 PM;Doublons;
+13/févr./26 2:10 PM;Fichier_corrompu;
+13/févr./26 11:20 AM;Doublons;
+13/févr./26 8:57 AM;Doublons;
+12/févr./26 5:44 PM;Doublons;
+12/févr./26 2:47 PM;Fichier_corrompu;
+12/févr./26 12:12 PM;Doublons;
+12/févr./26 11:31 AM;Doublons;
+12/févr./26 11:15 AM;Doublons;
+12/févr./26 11:00 AM;Doublons;
+11/févr./26 5:57 PM;Fichier_corrompu;
+11/févr./26 4:26 PM;Fichier_corrompu;
+11/févr./26 12:29 PM;Doublons;
+10/févr./26 10:51 AM;Doublons;
+10/févr./26 6:24 AM;Fichier_corrompu;
+09/févr./26 5:00 PM;Fichier_corrompu;
+09/févr./26 4:58 PM;Doublons;
+09/févr./26 4:57 PM;Doublons;
+09/févr./26 4:37 PM;Doublons;
+09/févr./26 4:36 PM;Doublons;
+09/févr./26 4:35 PM;Doublons;
+09/févr./26 4:34 PM;Doublons;
+09/févr./26 12:19 PM;MD5;
+09/févr./26 11:39 AM;Doublons;
+06/févr./26 4:23 PM;Doublons;
+06/févr./26 2:40 PM;Doublons;
+06/févr./26 2:06 PM;Doublons;
+06/févr./26 2:05 PM;Fichier_corrompu;
+05/févr./26 5:46 PM;Doublons;
+05/févr./26 3:02 PM;Doublons;
+05/févr./26 3:01 PM;Doublons;
+05/févr./26 2:40 PM;Doublons;
+05/févr./26 12:42 PM;Err_Sync;
+05/févr./26 12:21 PM;Fichier_corrompu;
+05/févr./26 11:37 AM;Err_Sync;
+05/févr./26 11:19 AM;Doublons;
+05/févr./26 11:05 AM;Fichier_corrompu;
+05/févr./26 10:59 AM;Emoji_named_file;
+05/févr./26 4:49 AM;Doublons;
+04/févr./26 2:22 PM;MD5;
+04/févr./26 11:26 AM;Fichier_corrompu;MD5
+04/févr./26 10:22 AM;Doublons;
+04/févr./26 7:52 AM;Doublons;
+04/févr./26 7:02 AM;Doublons;
+04/févr./26 4:47 AM;Fichier_corrompu;
+03/févr./26 5:29 PM;Doublons;
+03/févr./26 5:07 PM;Doublons;
+03/févr./26 4:52 PM;Fichier_corrompu;
+03/févr./26 4:49 PM;Doublons;
+03/févr./26 4:40 PM;Emoji_named_file;
+03/févr./26 4:40 PM;Emoji_named_file;
+03/févr./26 4:39 PM;Emoji_named_file;
+03/févr./26 4:38 PM;Emoji_named_file;
+03/févr./26 4:38 PM;Emoji_named_file;
+03/févr./26 4:37 PM;Emoji_named_file;
+03/févr./26 4:36 PM;Emoji_named_file;
+03/févr./26 4:35 PM;Emoji_named_file;
+03/févr./26 4:35 PM;Emoji_named_file;
+03/févr./26 4:34 PM;Emoji_named_file;
+03/févr./26 4:33 PM;Emoji_named_file;
+03/févr./26 4:33 PM;Emoji_named_file;
+03/févr./26 4:32 PM;Fichier_corrompu;
+03/févr./26 4:30 PM;Doublons;
+03/févr./26 3:01 PM;Fichier_corrompu;
+02/févr./26 4:32 PM;MD5;
+02/févr./26 4:27 PM;Doublons;
+02/févr./26 4:06 PM;Emoji_named_file;
+02/févr./26 3:08 PM;Doublons;
+02/févr./26 11:52 AM;Fichier_corrompu;
+30/janv./26 12:07 PM;Emoji_named_file;
+30/janv./26 12:06 PM;Emoji_named_file;
+30/janv./26 11:28 AM;MD5;
+30/janv./26 10:54 AM;Err_Sync;
+29/janv./26 3:24 PM;Emoji_named_file;
+29/janv./26 3:21 PM;Fichier_corrompu;
+29/janv./26 11:51 AM;Doublons;
+29/janv./26 11:49 AM;Fichier_corrompu;
+29/janv./26 11:45 AM;Doublons;
+29/janv./26 11:24 AM;Fichier_corrompu;
+28/janv./26 5:36 PM;Fichier_corrompu;
+28/janv./26 5:06 PM;Emoji_named_file;
+28/janv./26 2:12 PM;Fichier_corrompu;
+28/janv./26 2:08 PM;Err_Sync;
+28/janv./26 12:39 PM;Emoji_named_file;
+28/janv./26 12:36 PM;Doublons;
+28/janv./26 12:09 PM;Doublons;
+27/janv./26 5:28 PM;Doublons;
+27/janv./26 5:22 PM;Fichier_corrompu;
+27/janv./26 4:18 PM;Doublons;
+27/janv./26 4:13 PM;Doublons;
+27/janv./26 3:52 PM;Doublons;
+27/janv./26 3:44 PM;Doublons;
+27/janv./26 3:39 PM;Doublons;
+27/janv./26 3:35 PM;Doublons;
+27/janv./26 3:02 PM;Doublons;
+27/janv./26 2:59 PM;Doublons;
+27/janv./26 2:11 PM;Doublons;
+27/janv./26 12:05 PM;Emoji_named_file;
+27/janv./26 11:58 AM;MD5;
+27/janv./26 10:07 AM;Doublons;
+26/janv./26 5:06 PM;Fichier_corrompu;
+26/janv./26 4:53 PM;Doublons;
+26/janv./26 4:49 PM;Doublons;
+26/janv./26 4:41 PM;Fichier_corrompu;
+26/janv./26 12:24 PM;Doublons;
+26/janv./26 12:08 PM;MD5;
+26/janv./26 11:03 AM;MD5;
+23/janv./26 4:19 PM;MD5;
+23/janv./26 3:40 PM;MD5;
+23/janv./26 3:16 PM;Fichier_corrompu;
+23/janv./26 2:28 PM;Doublons;
+23/janv./26 2:22 PM;Fichier_corrompu;
+23/janv./26 12:10 PM;Doublons;
+23/janv./26 12:08 PM;Doublons;
+23/janv./26 11:45 AM;Emoji_named_file;
+23/janv./26 11:39 AM;Err_Sync;
+22/janv./26 6:19 PM;Err_Sync;
+22/janv./26 5:10 PM;Fichier_corrompu;
+22/janv./26 12:38 PM;Doublons;
+22/janv./26 10:52 AM;Doublons;
+22/janv./26 4:13 AM;Doublons;
+22/janv./26 4:10 AM;Doublons;
+21/janv./26 6:19 PM;Doublons;
+21/janv./26 4:32 PM;LockID;
+21/janv./26 3:47 PM;Doublons;
+21/janv./26 10:34 AM;Emoji_named_file;
+21/janv./26 10:33 AM;Emoji_named_file;
+20/janv./26 6:37 PM;Fichier_corrompu;
+20/janv./26 2:50 PM;MD5;
+20/janv./26 2:49 PM;MD5;
+20/janv./26 12:29 PM;Doublons;
+20/janv./26 11:50 AM;Doublons;
+20/janv./26 10:11 AM;Doublons;
+20/janv./26 5:11 AM;MD5;
+19/janv./26 6:25 PM;Fichier_corrompu;
+19/janv./26 6:24 PM;Fichier_corrompu;
+19/janv./26 6:23 PM;Emoji_named_file;
+19/janv./26 6:22 PM;Emoji_named_file;
+19/janv./26 6:21 PM;Emoji_named_file;
+19/janv./26 5:04 PM;Emoji_named_file;
+19/janv./26 3:26 PM;Emoji_named_file;
+16/janv./26 5:27 PM;Doublons;
+16/janv./26 5:26 PM;Fichier_corrompu;
+16/janv./26 5:24 PM;MD5;
+16/janv./26 2:57 PM;Doublons;
+16/janv./26 11:54 AM;MD5;
+16/janv./26 11:27 AM;Fichier_corrompu;
+16/janv./26 11:11 AM;Doublons;
+15/janv./26 3:39 PM;Doublons;
+15/janv./26 2:22 PM;Doublons;
+15/janv./26 11:39 AM;Doublons;
+15/janv./26 10:44 AM;Emoji_named_file;
+14/janv./26 5:41 PM;Doublons;
+14/janv./26 5:40 PM;Fichier_corrompu;
+14/janv./26 4:20 PM;Fichier_corrompu;
+14/janv./26 4:19 PM;Emoji_named_file;
+14/janv./26 3:30 PM;Doublons;
+14/janv./26 3:06 PM;Err_Sync;Moins_de_fichier
+13/janv./26 5:43 PM;Fichier_corrompu;
+13/janv./26 5:15 PM;Fichier_corrompu;
+13/janv./26 5:09 PM;Fichier_corrompu;
+13/janv./26 4:36 PM;Fichier_corrompu;
+13/janv./26 3:56 PM;Fichier_corrompu;
+13/janv./26 2:46 PM;Fichier_corrompu;
+13/janv./26 2:33 PM;MD5;
+13/janv./26 2:32 PM;Doublons;
+13/janv./26 2:30 PM;Emoji_named_file;
+13/janv./26 2:28 PM;Emoji_named_file;
+13/janv./26 2:26 PM;Emoji_named_file;
+13/janv./26 2:25 PM;Doublons;Fichier_corrompu
+13/janv./26 2:23 PM;Emoji_named_file;
+13/janv./26 2:11 PM;Fichier_corrompu;
+13/janv./26 12:11 PM;Fichier_corrompu;
+13/janv./26 11:09 AM;Doublons;
+13/janv./26 11:08 AM;Fichier_corrompu;
+13/janv./26 11:08 AM;Fichier_corrompu;
+13/janv./26 11:05 AM;Doublons;
+13/janv./26 11:04 AM;Doublons;
+13/janv./26 10:51 AM;Fichier_corrompu;
+13/janv./26 10:49 AM;Doublons;
+13/janv./26 7:57 AM;Fichier_corrompu;
+12/janv./26 6:39 PM;MD5;
+12/janv./26 4:52 PM;Emoji_named_file;
+12/janv./26 4:04 PM;Err_Sync;
+12/janv./26 2:24 PM;Fichier_corrompu;
+12/janv./26 2:23 PM;Doublons;
+12/janv./26 2:22 PM;Doublons;
+12/janv./26 12:52 PM;Emoji_named_file;
+12/janv./26 10:30 AM;MD5;
+09/janv./26 4:52 PM;Doublons;
+09/janv./26 4:46 PM;Err_Sync;
+09/janv./26 4:22 PM;Fichier_corrompu;
+09/janv./26 3:39 PM;Doublons;
+09/janv./26 12:13 PM;MD5;
+09/janv./26 11:20 AM;Dif_de_format;Doublons
+09/janv./26 11:17 AM;Err_Sync;
+09/janv./26 10:04 AM;Doublons;
+09/janv./26 10:03 AM;Doublons;
+08/janv./26 5:17 PM;Err_Sync;
+08/janv./26 2:04 PM;Doublons;
+07/janv./26 5:55 PM;Fichier_corrompu;
+07/janv./26 5:42 PM;Doublons;
+07/janv./26 4:39 PM;MD5;
+07/janv./26 3:57 PM;Fichier_corrompu;
+07/janv./26 3:51 PM;MD5;
+07/janv./26 3:42 PM;Doublons;
+07/janv./26 3:36 PM;Doublons;
+07/janv./26 3:34 PM;Doublons;
+07/janv./26 12:25 PM;MD5;
+07/janv./26 12:15 PM;Err_Sync;
+07/janv./26 11:10 AM;Doublons;
+06/janv./26 4:00 PM;Doublons;
+06/janv./26 2:13 PM;LockID;
+06/janv./26 12:04 PM;MD5;
+06/janv./26 12:02 PM;MD5;
+05/janv./26 5:42 PM;MD5;
+05/janv./26 5:01 PM;MD5;
+05/janv./26 4:59 PM;Doublons;
+05/janv./26 4:58 PM;Doublons;
+05/janv./26 4:57 PM;Doublons;
+05/janv./26 3:05 PM;Fichier_corrompu;
+05/janv./26 2:18 PM;Doublons;
+05/janv./26 2:07 PM;Emoji_named_file;
+05/janv./26 2:02 PM;Doublons;
+05/janv./26 11:12 AM;MD5;
+05/janv./26 11:01 AM;Emoji_named_file;
+05/janv./26 10:51 AM;Doublons;
+05/janv./26 10:28 AM;Err_Sync;
+02/janv./26 12:25 PM;Doublons;
+02/janv./26 11:21 AM;Doublons;
+31/déc./25 5:47 PM;Fichier_corrompu;
+31/déc./25 5:45 PM;Doublons;
+31/déc./25 2:22 PM;Doublons;
+31/déc./25 11:58 AM;MD5;
+30/déc./25 6:21 PM;Fichier_corrompu;
+30/déc./25 4:23 PM;Fichier_corrompu;
+29/déc./25 7:20 PM;MD5;
+29/déc./25 5:12 PM;Doublons;
+29/déc./25 4:59 PM;Fichier_corrompu;
+29/déc./25 4:23 PM;Doublons;
+29/déc./25 3:57 PM;Doublons;
+29/déc./25 2:11 PM;Doublons;
+26/déc./25 5:17 PM;Fichier_corrompu;
+26/déc./25 5:13 PM;Fichier_corrompu;
+26/déc./25 3:37 PM;Fichier_corrompu;
+26/déc./25 3:36 PM;Doublons;
+26/déc./25 2:32 PM;Emoji_named_file;
+26/déc./25 2:10 PM;Doublons;
+26/déc./25 2:08 PM;Doublons;
+26/déc./25 1:09 PM;Doublons;
+26/déc./25 12:54 PM;MD5;`;
+
+        // Function to parse the specific CSV format and aggregated it by date
+        function processCSV(csvText) {
+            const lines = csvText.trim().split('\n');
+            // Remove header
+            lines.shift();
+
+            const monthMap = {
+                "janv": "01", "févr": "02", "mars": "03", "avr": "04", "mai": "05", "juin": "06",
+                "juil": "07", "août": "08", "sept": "09", "oct": "10", "nov": "11", "déc": "12"
+            };
+
+            const data = {};
+
+            lines.forEach(line => {
+                if(!line.trim()) return;
+                
+                const parts = line.split(';');
+                if (parts.length < 2) return;
+
+                // 1. Parse Date: "24/nov./25 5:23 PM" -> "2025-11-24"
+                const fullDateStr = parts[0].trim();
+                const datePart = fullDateStr.split(' ')[0]; // "24/nov./25"
+                const dateSegments = datePart.split('/');
+                
+                if (dateSegments.length < 3) return;
+
+                const day = dateSegments[0].padStart(2, '0');
+                const rawMonth = dateSegments[1].toLowerCase().replace('.', '');
+                const month = monthMap[rawMonth];
+                const year = "20" + dateSegments[2];
+
+                if (!month) return; // invalid date format
+
+                const isoDate = `${year}-${month}-${day}`;
+
+                if (!data[isoDate]) {
+                    data[isoDate] = {};
+                }
+
+                // 2. Parse Tags (Combine 2nd and 3rd column, handle multitag in one cell)
+                let tagString = parts.slice(1).join(';'); // Combine all tag columns
+                const tags = tagString.split(/;| /).filter(t => t.trim().length > 0 && t.trim() !== 'PM' && t.trim() !== 'AM'); 
+                // Note: simplified splitting on semicolon. 
+                // Specific handling for the provided csv format where tags are sometimes fused or in next col.
+                // The CSV provided looks like: value;tag1;tag2 OR value;tag1;[empty]
+                
+                // Let's re-parse properly based on CSV structure
+                // Column 1: Date, Column 2: Tag(s), Column 3: Optional Tag
+                const tagsToCount = [];
+                const col2 = parts[1] ? parts[1].trim() : "";
+                const col3 = parts[2] ? parts[2].trim() : "";
+                
+                // Helper to split internal delimiters like "Dif_de_format;Doublons"
+                const extract = (str) => str.split(';').filter(s => s.trim().length > 0);
+                
+                extract(col2).forEach(t => tagsToCount.push(t));
+                extract(col3).forEach(t => tagsToCount.push(t));
+
+                const categoryAliases = {
+                    "0Fichiers": "Err_Sync",
+                    "Moins_de_fichier": "Err_Sync"
+                };
+
+                tagsToCount.forEach(tag => {
+                    const cleanTag = tag.trim();
+                    if (cleanTag) {
+                        const normalizedTag = categoryAliases[cleanTag] || cleanTag;
+                        data[isoDate][normalizedTag] = (data[isoDate][normalizedTag] || 0) + 1;
+                    }
+                });
+            });
+
+            return data;
+        }
+
+        const rawData = processCSV(csvContent);
+
+        document.addEventListener('DOMContentLoaded', function () {
+            // --- Data Processing ---
+            const allCategories = [...new Set(Object.values(rawData).flatMap(day => Object.keys(day)))];
+            const parseDate = d3.timeParse("%Y-%m-%d");
+
+            let processedData = Object.entries(rawData).map(([dateStr, values]) => {
+                const entry = { date: parseDate(dateStr) };
+                allCategories.forEach(cat => {
+                    entry[cat] = values[cat] || 0;
+                });
+                return entry;
+            }).sort((a, b) => a.date - b.date);
+
+            const colorScale = d3.scaleOrdinal()
+                .domain(allCategories)
+                .range(["#00d9ef","#a78bfa","#00e096","#ff6b8a","#ffb547","#60a5fa","#fb923c","#f472b6","#a3e635","#34d399"]);
+
+            const tooltip = d3.select("#tooltip");
+            let currentBarChartCategory = null;
+            let showInactive = false;
+            let showRollingAvg = false;
+            let inactiveCategories = [];
+            let evolutionMode = 'weekly';
+
+            // --- Jira Credential Management ---
+            const JIRA_DEFAULTS = {
+                url:   'https://support-tech.atlassian.net',
+                email: '',
+                token: '',
+                jql:   'created >= -240d AND labels IN ("Fichier_corrompu", "Doublons", "MD5", "Emoji_named_file", "Err_Sync", "LockID", "Dif_de_format", "0Fichiers") ORDER BY created DESC'
+            };
+
+            function loadJiraConfig() {
+                const cfg = JSON.parse(localStorage.getItem('jiraConfig') || '{}');
+                document.getElementById('jiraUrl').value   = cfg.url   || JIRA_DEFAULTS.url;
+                document.getElementById('jiraEmail').value = cfg.email || JIRA_DEFAULTS.email;
+                document.getElementById('jiraToken').value = cfg.token || JIRA_DEFAULTS.token;
+                document.getElementById('jiraJql').value   = cfg.jql   || JIRA_DEFAULTS.jql;
+                if (cfg.save) document.getElementById('jiraSave').checked = true;
+            }
+
+            function saveJiraConfig() {
+                const save = document.getElementById('jiraSave').checked;
+                if (save) {
+                    localStorage.setItem('jiraConfig', JSON.stringify({
+                        url:   document.getElementById('jiraUrl').value.trim(),
+                        email: document.getElementById('jiraEmail').value.trim(),
+                        token: document.getElementById('jiraToken').value.trim(),
+                        jql:   document.getElementById('jiraJql').value.trim(),
+                        save:  true
+                    }));
+                } else {
+                    localStorage.removeItem('jiraConfig');
+                }
+            }
+
+            // --- Jira Data Fetch ---
+            async function fetchJiraData() {
+                const url   = document.getElementById('jiraUrl').value.trim();
+                const email = document.getElementById('jiraEmail').value.trim();
+                const token = document.getElementById('jiraToken').value.trim();
+                const jql   = document.getElementById('jiraJql').value.trim();
+                const statusEl = document.getElementById('jiraStatus');
+                const btn = document.getElementById('fetchJiraBtn');
+
+                if (!url || !email || !token) {
+                    statusEl.textContent = 'Please fill in URL, email, and token.';
+                    return;
+                }
+
+                btn.disabled = true;
+                btn.textContent = '⏳ Fetching…';
+                statusEl.textContent = '';
+                saveJiraConfig();
+
+                const allIssues = [];
+                let nextPageToken = undefined;
+                const maxResults = 100;
+
+                const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+                try {
+                    while (true) {
+                        const params = new URLSearchParams({
+                            jql,
+                            fields: 'created,labels',
+                            maxResults
+                        });
+                        if (nextPageToken) params.set('nextPageToken', nextPageToken);
+
+                        // Retry loop for rate-limit (429)
+                        let resp, retries = 0;
+                        while (true) {
+                            resp = await fetch(`/api/jira/rest/api/3/search/jql?${params}`, {
+                                headers: {
+                                    'X-Jira-Url':   url,
+                                    'X-Jira-Email': email,
+                                    'X-Jira-Token': token
+                                }
+                            });
+                            if (resp.status === 429 && retries < 4) {
+                                const wait = Math.pow(2, retries) * 2000;
+                                retries++;
+                                statusEl.textContent = `Rate limited — waiting ${wait/1000}s before retry ${retries}/4…`;
+                                await sleep(wait);
+                            } else {
+                                break;
+                            }
+                        }
+
+                        if (!resp.ok) {
+                            const err = await resp.json().catch(() => ({ message: resp.statusText }));
+                            throw new Error(err.message || err.errorMessages?.[0] || resp.statusText);
+                        }
+                        const json = await resp.json();
+                        allIssues.push(...json.issues);
+                        nextPageToken = json.nextPageToken;
+                        statusEl.textContent = `Fetched ${allIssues.length} issues…`;
+                        if (!nextPageToken || json.issues.length === 0) break;
+                        await sleep(1000);
+                    }
+
+                    statusEl.textContent = `✅ ${allIssues.length} issues loaded. Updating charts…`;
+                    const newRaw = processJiraIssues(allIssues);
+                    reinitializeWithData(newRaw);
+                    statusEl.textContent = `✅ ${allIssues.length} issues — charts updated.`;
+                } catch (e) {
+                    statusEl.textContent = `❌ ${e.message}`;
+                } finally {
+                    btn.disabled = false;
+                    btn.textContent = '⬇ Fetch from Jira';
+                }
+            }
+
+            // --- Transform Jira JSON → rawData ---
+            function processJiraIssues(issues) {
+                const data = {};
+                issues.forEach(issue => {
+                    const createdStr = issue.fields?.created;
+                    if (!createdStr) return;
+                    const isoDate = createdStr.slice(0, 10); // "YYYY-MM-DD"
+                    if (!data[isoDate]) data[isoDate] = {};
+                    const categoryAliases = { "0Fichiers": "Err_Sync", "Moins_de_fichier": "Err_Sync" };
+                    const labels = issue.fields?.labels || [];
+                    labels.forEach(label => {
+                        const clean = label.trim();
+                        if (clean) {
+                            const normalized = categoryAliases[clean] || clean;
+                            data[isoDate][normalized] = (data[isoDate][normalized] || 0) + 1;
+                        }
+                    });
+                });
+                return data;
+            }
+
+            // --- Reinitialize with new data ---
+            function reinitializeWithData(newRawData) {
+                // Replace rawData in-place (it's a const object)
+                Object.keys(rawData).forEach(k => delete rawData[k]);
+                Object.assign(rawData, newRawData);
+                // Rebuild global state
+                allCategories.length = 0;
+                [...new Set(Object.values(rawData).flatMap(day => Object.keys(day)))].forEach(c => allCategories.push(c));
+                colorScale.domain(allCategories);
+
+                processedData = Object.entries(rawData).map(([dateStr, values]) => {
+                    const entry = { date: parseDate(dateStr) };
+                    allCategories.forEach(cat => { entry[cat] = values[cat] || 0; });
+                    return entry;
+                }).sort((a, b) => a.date - b.date);
+
+                // Clear and rebuild selectors
+                d3.select("#week-selector").selectAll("option").remove();
+                d3.select("#month-selector").selectAll("option").remove();
+                setupFilters();
+                setupSelectors();
+                updateDashboard();
+            }
+
+            // --- Weekly Evolution ---
+            function computeWeeklyEvolution(data, cats) {
+                const weekFmt = d3.timeFormat("%Y-W%V");
+                const weekParse = d3.timeParse("%Y-W%V");
+                const byWeek = {};
+                data.forEach(d => {
+                    const wk = weekFmt(d.date);
+                    if (!byWeek[wk]) byWeek[wk] = { weekKey: wk, counts: {} };
+                    cats.forEach(cat => {
+                        byWeek[wk].counts[cat] = (byWeek[wk].counts[cat] || 0) + (d[cat] || 0);
+                    });
+                });
+                const sorted = Object.values(byWeek).sort((a, b) => a.weekKey.localeCompare(b.weekKey));
+                const last6 = sorted.slice(-6);
+                last6.forEach(w => {
+                    const d = weekParse(w.weekKey);
+                    w.label = d ? d3.timeFormat("W%V (%b %d)")(d) : w.weekKey;
+                });
+                return last6;
+            }
+
+            function drawWeeklyEvolution(data, cats) {
+                const container = document.getElementById('weekly-evolution');
+                const rangeEl  = document.getElementById('evolutionRange');
+                if (!container) return;
+
+                const weeks = computeWeeklyEvolution(data, cats);
+                if (weeks.length === 0) {
+                    container.innerHTML = '<p class="text-xs text-gray-400">No data.</p>';
+                    rangeEl.textContent = '';
+                    return;
+                }
+
+                rangeEl.textContent = `${weeks[0].label} → ${weeks[weeks.length - 1].label}`;
+
+                // Compute max count for sparklines
+                const allCounts = weeks.flatMap(w => cats.map(c => w.counts[c] || 0));
+                const maxCount = Math.max(1, ...allCounts);
+
+                // Build table
+                let html = `<table class="w-full text-xs border-collapse">
+                    <thead>
+                        <tr class="border-b" style="color: var(--tertiary-dark);">
+                            <th class="text-left py-1 pr-3 font-semibold">Category</th>
+                            ${weeks.map(w => `<th class="text-center px-2 py-1 font-semibold whitespace-nowrap">${w.label}</th>`).join('')}
+                            <th class="text-center px-2 py-1 font-semibold">Trend</th>
+                            <th class="text-center px-2 py-1 font-semibold">vs prev wk</th>
+                        </tr>
+                    </thead>
+                    <tbody>`;
+
+                cats.forEach(cat => {
+                    const counts = weeks.map(w => w.counts[cat] || 0);
+                    const total = counts.reduce((a, b) => a + b, 0);
+                    if (total === 0) return; // skip empty categories
+
+                    const lastCount = counts[counts.length - 1];
+                    const prevCount = counts.length >= 2 ? counts[counts.length - 2] : 0;
+                    const delta = lastCount - prevCount;
+                    const pct = prevCount > 0 ? ((delta / prevCount) * 100).toFixed(0) : (lastCount > 0 ? '+∞' : '0');
+                    const isSpike = prevCount > 0 && delta / prevCount > 0.5;
+
+                    let deltaHtml;
+                    if (delta > 0) {
+                        deltaHtml = `<span style="color:#16a34a">▲ +${delta} (+${pct}%)</span>`;
+                    } else if (delta < 0) {
+                        deltaHtml = `<span style="color:#dc2626">▼ ${delta} (${pct}%)</span>`;
+                    } else {
+                        deltaHtml = `<span class="text-gray-400">—</span>`;
+                    }
+                    if (isSpike) deltaHtml += ` <span class="ml-1 px-1 rounded text-white text-xs" style="background:#dc2626;font-size:0.6rem">spike!</span>`;
+
+                    // Mini sparkline SVG (60×16)
+                    const sw = 60, sh = 16;
+                    const points = counts.map((v, i) => {
+                        const x = (i / Math.max(1, counts.length - 1)) * sw;
+                        const y = sh - (v / maxCount) * sh;
+                        return `${x},${y}`;
+                    }).join(' ');
+                    const sparkline = `<svg width="${sw}" height="${sh}" style="display:inline-block;vertical-align:middle">
+                        <polyline points="${points}" fill="none" stroke="${colorScale(cat)}" stroke-width="1.5" stroke-linejoin="round"/>
+                    </svg>`;
+
+                    html += `<tr class="border-b border-gray-100 hover:bg-gray-50">
+                        <td class="py-1 pr-3 font-medium" style="color:${colorScale(cat)}">${cat}</td>
+                        ${counts.map(v => `<td class="text-center px-2 py-1 text-gray-700">${v}</td>`).join('')}
+                        <td class="text-center px-2 py-1">${sparkline}</td>
+                        <td class="text-center px-2 py-1">${deltaHtml}</td>
+                    </tr>`;
+                });
+
+                html += `</tbody></table>`;
+                container.innerHTML = html;
+            }
+
+            function drawMonthlyEvolution(data, cats) {
+                const container = document.getElementById('monthly-evolution');
+                const rangeEl = document.getElementById('evolutionRange');
+                if (!container) return;
+
+                const monthFmt = d3.timeFormat("%Y-%m");
+                const monthParse = d3.timeParse("%Y-%m");
+                const byMonth = {};
+                data.forEach(d => {
+                    const mk = monthFmt(d.date);
+                    if (!byMonth[mk]) byMonth[mk] = { monthKey: mk, counts: {} };
+                    cats.forEach(cat => {
+                        byMonth[mk].counts[cat] = (byMonth[mk].counts[cat] || 0) + (d[cat] || 0);
+                    });
+                });
+                const sorted = Object.values(byMonth).sort((a, b) => a.monthKey.localeCompare(b.monthKey));
+                const last6 = sorted.slice(-6);
+                last6.forEach(m => {
+                    const d = monthParse(m.monthKey);
+                    m.label = d ? d3.timeFormat("%b %Y")(d) : m.monthKey;
+                });
+
+                if (last6.length === 0) {
+                    container.innerHTML = '<p class="text-xs text-gray-400">No data.</p>';
+                    rangeEl.textContent = '';
+                    return;
+                }
+                rangeEl.textContent = `${last6[0].label} → ${last6[last6.length - 1].label}`;
+
+                const allCounts = last6.flatMap(m => cats.map(c => m.counts[c] || 0));
+                const maxCount = Math.max(1, ...allCounts);
+
+                let html = `<table class="w-full text-xs border-collapse">
+                    <thead>
+                        <tr class="border-b" style="color: var(--tertiary-dark);">
+                            <th class="text-left py-1 pr-3 font-semibold">Category</th>
+                            ${last6.map(m => `<th class="text-center px-2 py-1 font-semibold whitespace-nowrap">${m.label}</th>`).join('')}
+                            <th class="text-center px-2 py-1 font-semibold">Trend</th>
+                            <th class="text-center px-2 py-1 font-semibold">vs prev month</th>
+                        </tr>
+                    </thead>
+                    <tbody>`;
+
+                cats.forEach(cat => {
+                    const counts = last6.map(m => m.counts[cat] || 0);
+                    const total = counts.reduce((a, b) => a + b, 0);
+                    if (total === 0) return;
+                    const lastCount = counts[counts.length - 1];
+                    const prevCount = counts.length >= 2 ? counts[counts.length - 2] : 0;
+                    const delta = lastCount - prevCount;
+                    const pct = prevCount > 0 ? ((delta / prevCount) * 100).toFixed(0) : (lastCount > 0 ? '+∞' : '0');
+                    let deltaHtml;
+                    if (delta > 0) deltaHtml = `<span style="color:#16a34a">▲ +${delta} (+${pct}%)</span>`;
+                    else if (delta < 0) deltaHtml = `<span style="color:#dc2626">▼ ${delta} (${pct}%)</span>`;
+                    else deltaHtml = `<span class="text-gray-400">—</span>`;
+                    const sw = 60, sh = 16;
+                    const points = counts.map((v, i) => {
+                        const px = (i / Math.max(1, counts.length - 1)) * sw;
+                        const py = sh - (v / maxCount) * sh;
+                        return `${px},${py}`;
+                    }).join(' ');
+                    const sparkline = `<svg width="${sw}" height="${sh}" style="display:inline-block;vertical-align:middle">
+                        <polyline points="${points}" fill="none" stroke="${colorScale(cat)}" stroke-width="1.5" stroke-linejoin="round"/>
+                    </svg>`;
+                    html += `<tr class="border-b border-gray-100 hover:bg-gray-50">
+                        <td class="py-1 pr-3 font-medium" style="color:${colorScale(cat)}">${cat}</td>
+                        ${counts.map(v => `<td class="text-center px-2 py-1 text-gray-700">${v}</td>`).join('')}
+                        <td class="text-center px-2 py-1">${sparkline}</td>
+                        <td class="text-center px-2 py-1">${deltaHtml}</td>
+                    </tr>`;
+                });
+                html += `</tbody></table>`;
+                container.innerHTML = html;
+            }
+
+            function drawEvolution(data, cats) {
+                const weeklyDiv  = document.getElementById('weekly-evolution');
+                const monthlyDiv = document.getElementById('monthly-evolution');
+                const totalDiv   = document.getElementById('total-evolution');
+                const inactiveBtn = document.getElementById('toggleInactiveBtn');
+                const rangeEl    = document.getElementById('evolutionRange');
+
+                weeklyDiv.classList.toggle('hidden', evolutionMode !== 'weekly');
+                monthlyDiv.classList.toggle('hidden', evolutionMode !== 'monthly');
+                totalDiv.classList.toggle('hidden', evolutionMode !== 'total');
+                inactiveBtn.style.display = evolutionMode === 'total' ? 'none' : '';
+
+                if (evolutionMode === 'weekly') {
+                    drawWeeklyEvolution(data, cats);
+                } else if (evolutionMode === 'monthly') {
+                    drawMonthlyEvolution(data, cats);
+                } else {
+                    rangeEl.textContent = '';
+                    drawBarChart(data, cats);
+                }
+            }
+
+            // --- Active / Inactive Categories ---
+            function getActiveCategories(filteredData) {
+                const now = filteredData.length > 0 ? filteredData[filteredData.length - 1].date : new Date();
+                const cutoff = new Date(now);
+                cutoff.setDate(cutoff.getDate() - 30);
+                const last30 = filteredData.filter(d => d.date >= cutoff);
+                const active = [], inactive = [];
+                allCategories.forEach(cat => {
+                    const hasRecent = last30.some(d => (d[cat] || 0) > 0);
+                    if (hasRecent) active.push(cat);
+                    else inactive.push(cat);
+                });
+                return { active, inactive };
+            }
+
+            // --- KPI Cards ---
+            function drawKPICards(filteredData, visibleCats) {
+                const total = d3.sum(filteredData, d => d3.sum(visibleCats, cat => d[cat] || 0));
+                document.getElementById('kpi-total').textContent = total;
+
+                const now = filteredData.length > 0 ? filteredData[filteredData.length - 1].date : new Date();
+                const week7Ago = new Date(now);
+                week7Ago.setDate(week7Ago.getDate() - 7);
+                const thisWeek = filteredData.filter(d => d.date >= week7Ago);
+                const weekTotal = d3.sum(thisWeek, d => d3.sum(visibleCats, cat => d[cat] || 0));
+                document.getElementById('kpi-week').textContent = weekTotal;
+
+                let topCat = null, topCount = 0;
+                visibleCats.forEach(cat => {
+                    const count = d3.sum(filteredData, d => d[cat] || 0);
+                    if (count > topCount) { topCount = count; topCat = cat; }
+                });
+                document.getElementById('kpi-top-cat').textContent = topCat || '—';
+                document.getElementById('kpi-top-count').textContent = topCat ? `${topCount} issues` : '';
+
+                const spanMs = filteredData.length > 1
+                    ? (filteredData[filteredData.length - 1].date - filteredData[0].date) : 0;
+                const prevEnd = filteredData.length > 0 ? new Date(filteredData[0].date.getTime()) : new Date();
+                const prevStart = new Date(prevEnd.getTime() - spanMs);
+                const prevData = processedData.filter(d => d.date >= prevStart && d.date < prevEnd);
+                const prevTotal = d3.sum(prevData, d => d3.sum(visibleCats, cat => d[cat] || 0));
+                const trendEl = document.getElementById('kpi-trend');
+                if (prevTotal === 0) {
+                    trendEl.textContent = '—';
+                    trendEl.style.color = '';
+                } else {
+                    const pct = ((total - prevTotal) / prevTotal * 100).toFixed(0);
+                    trendEl.textContent = `${pct > 0 ? '+' : ''}${pct}%`;
+                    trendEl.style.color = pct > 0 ? '#16a34a' : (pct < 0 ? '#dc2626' : '');
+                }
+            }
+
+            // --- Rolling Average ---
+            function computeRollingAvg(values, windowSize) {
+                return values.map((d, i) => {
+                    const start = Math.max(0, i - windowSize + 1);
+                    const win = values.slice(start, i + 1);
+                    return { date: d.date, value: d3.mean(win, v => v.value) };
+                });
+            }
+
+            // --- Heatmap ---
+            function drawHeatmap(filteredData) {
+                const container = d3.select("#heatmap-chart");
+                container.html("");
+                const rangeEl = document.getElementById('heatmap-range');
+                if (filteredData.length === 0) { rangeEl.textContent = ''; return; }
+
+                const dayTotals = {};
+                filteredData.forEach(d => {
+                    const key = d3.timeFormat("%Y-%m-%d")(d.date);
+                    dayTotals[key] = d3.sum(allCategories, cat => d[cat] || 0);
+                });
+                const maxDay = d3.max(Object.values(dayTotals)) || 1;
+                const colorFn = d3.scaleSequential(d3.interpolate("#0d1425", "#00d9ef")).domain([0, maxDay]);
+
+                const minDate = filteredData[0].date;
+                const maxDate = filteredData[filteredData.length - 1].date;
+                rangeEl.textContent = `${d3.timeFormat("%b %d, %Y")(minDate)} → ${d3.timeFormat("%b %d, %Y")(maxDate)}`;
+
+                const cellSize = 13, cellPad = 2;
+                const dayLabels = ['Mon', '', 'Wed', '', 'Fri', '', 'Sun'];
+                const leftPad = 30, topPad = 22;
+
+                const mondays = d3.timeMondays(d3.timeMonday(minDate), d3.timeDay.offset(maxDate, 1));
+                const numWeeks = mondays.length;
+                const svgWidth = leftPad + numWeeks * (cellSize + cellPad) + 4;
+                const svgHeight = topPad + 7 * (cellSize + cellPad) + 4;
+
+                const svg = container.append("svg")
+                    .attr("width", svgWidth)
+                    .attr("height", svgHeight);
+
+                dayLabels.forEach((label, i) => {
+                    if (!label) return;
+                    svg.append("text")
+                        .attr("x", leftPad - 4)
+                        .attr("y", topPad + i * (cellSize + cellPad) + cellSize / 2 + 4)
+                        .attr("text-anchor", "end")
+                        .attr("font-size", "9px")
+                        .attr("fill", "#666")
+                        .text(label);
+                });
+
+                let lastMonth = -1;
+                mondays.forEach((monday, wi) => {
+                    const m = monday.getMonth();
+                    if (m !== lastMonth) {
+                        lastMonth = m;
+                        svg.append("text")
+                            .attr("x", leftPad + wi * (cellSize + cellPad))
+                            .attr("y", topPad - 6)
+                            .attr("font-size", "9px")
+                            .attr("fill", "#555")
+                            .text(d3.timeFormat("%b")(monday));
+                    }
+                });
+
+                const days = d3.timeDays(d3.timeDay(minDate), d3.timeDay.offset(maxDate, 1));
+                days.forEach(day => {
+                    const key = d3.timeFormat("%Y-%m-%d")(day);
+                    const val = dayTotals[key] || 0;
+                    const monday = d3.timeMonday(day);
+                    const wi = mondays.findIndex(m => +m === +monday);
+                    if (wi < 0) return;
+                    const dow = (day.getDay() + 6) % 7;
+                    const cx = leftPad + wi * (cellSize + cellPad);
+                    const cy = topPad + dow * (cellSize + cellPad);
+                    svg.append("rect")
+                        .attr("x", cx).attr("y", cy)
+                        .attr("width", cellSize).attr("height", cellSize)
+                        .attr("rx", 2)
+                        .attr("fill", colorFn(val))
+                        .on("mouseover", (event) => {
+                            if (val >= 0) {
+                                tooltip.style("opacity", 1);
+                                tooltip.html(`${key}: ${val} issue${val !== 1 ? 's' : ''}`)
+                                    .style("left", (event.pageX + 10) + "px")
+                                    .style("top", (event.pageY - 28) + "px");
+                            }
+                        })
+                        .on("mouseout", () => tooltip.style("opacity", 0));
+                });
+            }
+
+            // --- Category Stats ---
+            function drawCategoryStats(filteredData, cat) {
+                const panel = document.getElementById('category-stats-panel');
+                if (!cat) { panel.classList.add('hidden'); return; }
+                panel.classList.remove('hidden');
+                document.getElementById('stats-cat-title').textContent = `Category: ${cat}`;
+
+                const total = d3.sum(filteredData, d => d[cat] || 0);
+                document.getElementById('stats-total').textContent = total;
+
+                if (filteredData.length < 2) {
+                    document.getElementById('stats-avg-week').textContent = total;
+                    document.getElementById('stats-peak').textContent = '—';
+                    document.getElementById('stats-peak-label').textContent = '';
+                    document.getElementById('stats-days-since').textContent = '—';
+                    return;
+                }
+
+                const spanDays = (filteredData[filteredData.length - 1].date - filteredData[0].date) / 86400000;
+                const spanWeeks = Math.max(1, spanDays / 7);
+                document.getElementById('stats-avg-week').textContent = (total / spanWeeks).toFixed(1);
+
+                const weekFmt = d3.timeFormat("%Y-W%V");
+                const byWeek = {};
+                filteredData.forEach(d => {
+                    const wk = weekFmt(d.date);
+                    byWeek[wk] = (byWeek[wk] || 0) + (d[cat] || 0);
+                });
+                const peakEntry = Object.entries(byWeek).reduce((mx, e) => e[1] > mx[1] ? e : mx, ['', 0]);
+                document.getElementById('stats-peak').textContent = peakEntry[1];
+                document.getElementById('stats-peak-label').textContent = peakEntry[0] || '';
+
+                const lastEntry = [...filteredData].reverse().find(d => (d[cat] || 0) > 0);
+                if (lastEntry) {
+                    const diff = Math.floor((new Date() - lastEntry.date) / 86400000);
+                    document.getElementById('stats-days-since').textContent = diff;
+                } else {
+                    document.getElementById('stats-days-since').textContent = '—';
+                }
+            }
+
+            // --- Initial Setup ---
+            function initialize() {
+                setupFilters();
+                setupSelectors();
+                setupEventListeners();
+                updateDashboard();
+            }
+
+            function setupFilters() {
+                if (processedData.length === 0) return;
+                const dateExtent = d3.extent(processedData, d => d.date);
+                d3.select("#startDate").attr("min", d3.timeFormat("%Y-%m-%d")(dateExtent[0])).attr("value", d3.timeFormat("%Y-%m-%d")(dateExtent[0]));
+                d3.select("#endDate").attr("max", d3.timeFormat("%Y-%m-%d")(dateExtent[1])).attr("value", d3.timeFormat("%Y-%m-%d")(dateExtent[1]));
+            }
+
+            function setupSelectors() {
+                const weeks = [...new Set(processedData.map(d => d3.timeFormat("%Y-W%U")(d.date)))].sort();
+                const weekSelector = d3.select("#week-selector");
+                weekSelector.selectAll("option")
+                    .data(weeks)
+                    .enter()
+                    .append("option")
+                    .attr("value", d => d)
+                    .text(d => `Week of ${d3.timeParse("%Y-W%U")(d).toLocaleDateString()}`);
+                if (weeks.length > 0) weekSelector.property("value", weeks[weeks.length - 1]);
+
+                const months = [...new Set(processedData.map(d => d3.timeFormat("%Y-%m")(d.date)))].sort();
+                const monthSelector = d3.select("#month-selector");
+                monthSelector.selectAll("option")
+                    .data(months)
+                    .enter()
+                    .append("option")
+                    .attr("value", d => d)
+                    .text(d => d3.timeParse("%Y-%m")(d).toLocaleString('default', { month: 'long', year: 'numeric' }));
+                if (months.length > 0) monthSelector.property("value", months[months.length - 1]);
+            }
+
+            function setupEventListeners() {
+                d3.select("#startDate").on("change", updateDashboard);
+                d3.select("#endDate").on("change", updateDashboard);
+                d3.select("#resetFilters").on("click", () => {
+                    setupFilters();
+                    updateDashboard();
+                });
+                d3.select("#week-selector").on("change", updateDashboard);
+                d3.select("#month-selector").on("change", updateDashboard);
+                d3.select("#backToOverviewBtn").on("click", () => {
+                    currentBarChartCategory = null;
+                    d3.select("#backToOverviewBtn").classed("hidden", true);
+                    updateDashboard();
+                });
+                d3.select("#downloadBtn").on("click", downloadHTML);
+
+                // Jira panel toggle
+                document.getElementById('jiraToggle').addEventListener('click', () => {
+                    const panel = document.getElementById('jiraPanel');
+                    const icon  = document.getElementById('jiraToggleIcon');
+                    const hidden = panel.classList.toggle('hidden');
+                    icon.textContent = hidden ? '▶' : '▼';
+                });
+
+                // Evolution tab toggles
+                ['evoWeeklyBtn', 'evoMonthlyBtn', 'evoTotalBtn'].forEach(id => {
+                    document.getElementById(id).addEventListener('click', () => {
+                        evolutionMode = id === 'evoWeeklyBtn' ? 'weekly' : id === 'evoMonthlyBtn' ? 'monthly' : 'total';
+                        if (evolutionMode !== 'total') {
+                            currentBarChartCategory = null;
+                            d3.select("#backToOverviewBtn").classed("hidden", true);
+                        }
+                        document.querySelectorAll('.evo-tab').forEach(b => {
+                            const active = b.id === id;
+                            b.style.backgroundColor = active ? 'var(--primary-dark)' : '';
+                            b.style.color = active ? 'white' : 'var(--primary-dark)';
+                        });
+                        updateDashboard();
+                    });
+                });
+
+                // Toggle inactive categories
+                document.getElementById('toggleInactiveBtn').addEventListener('click', () => {
+                    showInactive = !showInactive;
+                    updateDashboard();
+                });
+
+                // Toggle rolling average
+                document.getElementById('toggleRollingAvgBtn').addEventListener('click', () => {
+                    showRollingAvg = !showRollingAvg;
+                    document.getElementById('toggleRollingAvgBtn').style.backgroundColor =
+                        showRollingAvg ? 'var(--tertiary-light)' : '';
+                    updateDashboard();
+                });
+
+                // Jira fetch
+                document.getElementById('fetchJiraBtn').addEventListener('click', fetchJiraData);
+
+                const sidebar = document.getElementById('sidebar');
+                const toggle = document.getElementById('sidebar-toggle');
+                toggle.addEventListener('click', () => {
+                    sidebar.classList.toggle('-translate-x-full');
+                });
+
+                window.addEventListener('resize', updateDashboard);
+            }
+
+            // --- Main Update Function ---
+            function updateDashboard() {
+                if (processedData.length === 0) return;
+                const startDate = parseDate(d3.select("#startDate").property("value"));
+                const endDate   = parseDate(d3.select("#endDate").property("value"));
+                if (!startDate || !endDate) return;
+
+                const filteredData = processedData.filter(d => d.date >= startDate && d.date <= endDate);
+
+                // Update header date range
+                const fmt = d3.timeFormat("%b %Y");
+                const rangeEl = document.getElementById('overview-range');
+                if (rangeEl && filteredData.length > 0) {
+                    const minDate = d3.min(filteredData, d => d.date);
+                    const maxDate = d3.max(filteredData, d => d.date);
+                    rangeEl.textContent = fmt(minDate) === fmt(maxDate)
+                        ? fmt(minDate)
+                        : `${fmt(minDate)} → ${fmt(maxDate)}`;
+                }
+
+                const { active, inactive } = getActiveCategories(filteredData);
+                inactiveCategories = inactive;
+                const visibleCats = showInactive ? allCategories.slice() : active;
+
+                const btn = document.getElementById('toggleInactiveBtn');
+                if (btn) btn.textContent = showInactive
+                    ? `Hide inactive (${inactive.length})`
+                    : `Show inactive (${inactive.length})`;
+
+                drawKPICards(filteredData, visibleCats);
+                drawEvolution(filteredData, visibleCats);
+                drawLineChart(filteredData, visibleCats);
+                drawPieCharts(processedData, visibleCats);
+                drawHeatmap(filteredData);
+                drawCategoryStats(filteredData, currentBarChartCategory);
+            }
+
+            // --- Chart Drawing Functions ---
+            function drawBarChart(data, cats) {
+                const container = d3.select("#bar-chart");
+                container.html("");
+                const bounds = container.node().getBoundingClientRect();
+                const margin = { top: 20, right: 30, bottom: 100, left: 60 };
+                const width = bounds.width - margin.left - margin.right;
+                const height = 400 - margin.top - margin.bottom;
+
+                const svg = container.append("svg")
+                    .attr("width", width + margin.left + margin.right)
+                    .attr("height", height + margin.top + margin.bottom)
+                    .append("g")
+                    .attr("transform", `translate(${margin.left},${margin.top})`);
+
+                let chartData, x, y, xAxis, yAxis;
+
+                if (currentBarChartCategory) {
+                    // Detail view
+                    chartData = data.map(d => ({ date: d.date, value: d[currentBarChartCategory] })).filter(d => d.value > 0);
+                    x = d3.scaleTime().range([0, width]).domain(d3.extent(chartData, d => d.date));
+                    y = d3.scaleLinear().range([height, 0]).domain([0, d3.max(chartData, d => d.value) || 0]);
+                    xAxis = d3.axisBottom(x).ticks(10).tickFormat(d3.timeFormat("%b %d"));
+                    yAxis = d3.axisLeft(y).ticks(5).tickFormat(d3.format("d"));
+                } else {
+                    // Overview view
+                    chartData = cats.map(cat => ({
+                        category: cat,
+                        value: d3.sum(data, d => d[cat])
+                    })).sort((a, b) => b.value - a.value);
+                    x = d3.scaleBand().range([0, width]).padding(0.1).domain(chartData.map(d => d.category));
+                    y = d3.scaleLinear().range([height, 0]).domain([0, d3.max(chartData, d => d.value) || 0]);
+                    xAxis = d3.axisBottom(x);
+                    yAxis = d3.axisLeft(y).ticks(5).tickFormat(d3.format("d"));
+                }
+
+                svg.append("g")
+                    .attr("class", "x-axis")
+                    .attr("transform", `translate(0,${height})`)
+                    .call(xAxis)
+                    .selectAll("text")
+                    .attr("transform", "translate(-10,0)rotate(-45)")
+                    .style("text-anchor", "end");
+
+                svg.append("g").attr("class", "y-axis").call(yAxis);
+                
+                // Add Y-axis grid lines
+                svg.append("g")
+                    .attr("class", "grid")
+                    .call(d3.axisLeft(y).tickSize(-width).tickFormat(""))
+                    .selectAll("line").attr("class", "grid-line");
+
+                svg.selectAll(".bar")
+                    .data(chartData)
+                    .enter().append("rect")
+                    .attr("class", "bar")
+                    .attr("x", d => currentBarChartCategory ? x(d.date) - (width/Math.max(1, chartData.length))/2 : x(d.category))
+                    .attr("width", currentBarChartCategory ? Math.max(2, width/chartData.length - 2) : x.bandwidth())
+                    .attr("y", d => y(d.value))
+                    .attr("height", d => height - y(d.value))
+                    .attr("fill", d => colorScale(currentBarChartCategory || d.category))
+                    .style("cursor", currentBarChartCategory ? "default" : "pointer")
+                    .on("mouseover", (event, d) => {
+                        tooltip.style("opacity", 1);
+                    })
+                    .on("mousemove", (event, d) => {
+                        const text = currentBarChartCategory 
+                            ? `${d3.timeFormat("%Y-%m-%d")(d.date)}: ${d.value}`
+                            : `${d.category}: ${d.value}`;
+                        tooltip.html(text)
+                            .style("left", (event.pageX + 10) + "px")
+                            .style("top", (event.pageY - 28) + "px");
+                    })
+                    .on("mouseout", () => {
+                        tooltip.style("opacity", 0);
+                    })
+                    .on("click", (event, d) => {
+                        if (!currentBarChartCategory) {
+                            currentBarChartCategory = d.category;
+                            d3.select("#backToOverviewBtn").classed("hidden", false);
+                            updateDashboard();
+                        }
+                    });
+            }
+
+            function drawLineChart(data, cats) {
+                const container = d3.select("#line-chart");
+                container.html("");
+                const bounds = container.node().getBoundingClientRect();
+                const margin = { top: 20, right: 30, bottom: 30, left: 60 };
+                const width = bounds.width - margin.left - margin.right;
+                const height = 400 - margin.top - margin.bottom;
+
+                const outerSvg = container.append("svg")
+                    .attr("width", width + margin.left + margin.right)
+                    .attr("height", height + margin.top + margin.bottom);
+
+                const svg = outerSvg.append("g")
+                    .attr("transform", `translate(${margin.left},${margin.top})`);
+
+                const series = cats.map(cat => ({
+                    name: cat,
+                    values: data.map(d => ({ date: d.date, value: d[cat] }))
+                }));
+
+                const x = d3.scaleTime()
+                    .domain(d3.extent(data, d => d.date))
+                    .range([0, width]);
+
+                const yMax = d3.max(series, s => d3.max(s.values, d => d.value));
+                const y = d3.scaleLinear()
+                    .domain([0, yMax || 1])
+                    .range([height, 0]).nice();
+
+                // Clip path so lines don't overflow during zoom
+                svg.append("defs").append("clipPath")
+                    .attr("id", "line-clip")
+                    .append("rect").attr("width", width).attr("height", height);
+
+                const xAxisG = svg.append("g")
+                    .attr("class", "x-axis axis")
+                    .attr("transform", `translate(0,${height})`)
+                    .call(d3.axisBottom(x));
+
+                svg.append("g").attr("class", "axis")
+                    .call(d3.axisLeft(y).ticks(5).tickFormat(d3.format("d")));
+
+                svg.append("g")
+                    .attr("class", "grid")
+                    .call(d3.axisLeft(y).tickSize(-width).tickFormat(""))
+                    .selectAll("line").attr("class", "grid-line");
+
+                const makeLine = xScale => d3.line()
+                    .x(d => xScale(d.date))
+                    .y(d => y(d.value))
+                    .curve(d3.curveMonotoneX);
+
+                // Clipped chart group
+                const chartG = svg.append("g").attr("clip-path", "url(#line-clip)");
+
+                chartG.selectAll(".line-path")
+                    .data(series)
+                    .enter().append("path")
+                    .attr("class", d => `line-path line-${d.name.replace(/\s+/g, '-')}`)
+                    .attr("d", d => makeLine(x)(d.values))
+                    .style("stroke", d => colorScale(d.name))
+                    .style("fill", "none")
+                    .style("stroke-width", 2);
+
+                // Rolling average overlay
+                if (showRollingAvg) {
+                    series.forEach(s => {
+                        const avgValues = computeRollingAvg(s.values, 7);
+                        chartG.append("path")
+                            .datum(avgValues)
+                            .attr("class", `rolling-line rolling-${s.name.replace(/\s+/g, '-')}`)
+                            .attr("d", makeLine(x)(avgValues))
+                            .style("stroke", colorScale(s.name))
+                            .style("fill", "none")
+                            .style("stroke-width", 1.5)
+                            .style("stroke-dasharray", "5,3")
+                            .style("opacity", 0.75);
+                    });
+                }
+
+                // Zoom behaviour (scroll + pinch + drag)
+                const zoom = d3.zoom()
+                    .scaleExtent([1, 50])
+                    .translateExtent([[0, 0], [width, height]])
+                    .extent([[0, 0], [width, height]])
+                    .on("zoom", (event) => {
+                        const nx = event.transform.rescaleX(x);
+                        xAxisG.call(d3.axisBottom(nx).tickFormat(d3.timeFormat("%b %d")));
+                        const nl = makeLine(nx);
+                        chartG.selectAll(".line-path").attr("d", d => nl(d.values));
+                        chartG.selectAll(".rolling-line").attr("d", function(d) { return nl(d); });
+                        const resetBtn = document.getElementById('resetZoomBtn');
+                        if (resetBtn) resetBtn.classList.toggle('hidden', event.transform.k === 1 && event.transform.x === 0);
+                    });
+
+                const zoomRect = svg.append("rect")
+                    .attr("class", "zoom-rect")
+                    .attr("width", width).attr("height", height)
+                    .style("fill", "none").style("pointer-events", "all")
+                    .call(zoom);
+
+                const resetBtn = document.getElementById('resetZoomBtn');
+                if (resetBtn) {
+                    resetBtn.onclick = () => {
+                        zoomRect.call(zoom.transform, d3.zoomIdentity);
+                        resetBtn.classList.add('hidden');
+                    };
+                }
+
+                // Legend
+                const legendContainer = d3.select("#line-chart-legend");
+                legendContainer.html("");
+                legendContainer.selectAll(".legend-item")
+                    .data(cats)
+                    .enter().append("div")
+                    .attr("class", "legend-item flex items-center")
+                    .on("click", (event, d) => {
+                        const isActive = !d3.select(event.currentTarget).classed("faded");
+                        d3.select(event.currentTarget).classed("faded", isActive);
+                        const slug = d.replace(/\s+/g, '-');
+                        chartG.selectAll(`.line-${slug}`).style("display", isActive ? "none" : "initial");
+                        chartG.selectAll(`.rolling-${slug}`).style("display", isActive ? "none" : "initial");
+                    })
+                    .each(function(d) {
+                        d3.select(this).append("div")
+                            .attr("class", "w-4 h-4 rounded-full mr-2")
+                            .style("background-color", colorScale(d));
+                        d3.select(this).append("span").text(d);
+                    });
+            }
+
+            function drawPieCharts(fullData, cats) {
+                // Weekly Pie
+                const selectedWeek = d3.select("#week-selector").property("value");
+                if (selectedWeek) {
+                    const weekData = fullData.filter(d => d3.timeFormat("%Y-W%U")(d.date) === selectedWeek);
+                    const weekTotals = aggregateData(weekData, cats);
+                    drawSinglePie("#pie-chart-week", weekTotals);
+                }
+
+                // Monthly Pie
+                const selectedMonth = d3.select("#month-selector").property("value");
+                if (selectedMonth) {
+                    const monthData = fullData.filter(d => d3.timeFormat("%Y-%m")(d.date) === selectedMonth);
+                    const monthTotals = aggregateData(monthData, cats);
+                    drawSinglePie("#pie-chart-month", monthTotals);
+                }
+            }
+
+            function aggregateData(data, cats) {
+                const totals = {};
+                cats.forEach(cat => {
+                    totals[cat] = d3.sum(data, d => d[cat]);
+                });
+                return Object.entries(totals).map(([key, value]) => ({ category: key, value: value })).filter(d => d.value > 0);
+            }
+
+            function drawSinglePie(selector, data) {
+                const container = d3.select(selector);
+                container.html("");
+                const bounds = container.node().getBoundingClientRect();
+                const width = bounds.width;
+                const height = 300;
+                const radius = Math.min(width, height) / 2 - 10;
+
+                const svg = container.append("svg")
+                    .attr("width", width)
+                    .attr("height", height)
+                    .append("g")
+                    .attr("transform", `translate(${width / 2},${height / 2})`);
+
+                if (data.length === 0) {
+                    svg.append("text")
+                        .attr("text-anchor", "middle")
+                        .attr("dy", "0.35em")
+                        .text("No data for this period.");
+                    return;
+                }
+
+                const pie = d3.pie().value(d => d.value).sort(null);
+                const arc = d3.arc().innerRadius(0).outerRadius(radius);
+
+                const path = svg.selectAll("path")
+                    .data(pie(data))
+                    .enter().append("path")
+                    .attr("d", arc)
+                    .attr("fill", d => colorScale(d.data.category))
+                    .attr("stroke", "white")
+                    .style("stroke-width", "2px")
+                    .on("mouseover", (event, d) => {
+                        tooltip.style("opacity", 1);
+                        d3.select(event.currentTarget).style("opacity", 0.8);
+                    })
+                    .on("mousemove", (event, d) => {
+                        const total = d3.sum(data, item => item.value);
+                        const percent = (d.data.value / total * 100).toFixed(1);
+                        tooltip.html(`${d.data.category}: ${d.data.value} (${percent}%)`)
+                            .style("left", (event.pageX + 10) + "px")
+                            .style("top", (event.pageY - 28) + "px");
+                    })
+                    .on("mouseout", (event, d) => {
+                        tooltip.style("opacity", 0);
+                        d3.select(event.currentTarget).style("opacity", 1);
+                    });
+            }
+
+            async function downloadHTML() {
+                let html;
+                try {
+                    const resp = await fetch('/updated_dashboard.html?_=' + Date.now(), { cache: 'no-store' });
+                    html = await resp.text();
+                } catch (e) {
+                    html = '<!DOCTYPE html>\n' + document.documentElement.outerHTML;
+                }
+
+                // Bake current rawData as JSON into the exported file
+                const jsonData = JSON.stringify(rawData);
+                html = html.replace(
+                    'const rawData = processCSV(csvContent);',
+                    'const rawData = ' + jsonData + '; // processCSV(csvContent);'
+                );
+
+                // Hide the Jira connection panel in the exported file
+                html = html.replace(
+                    'id="jiraSection"',
+                    'id="jiraSection" style="display:none"'
+                );
+
+                const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = 'jira_dashboard.html';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+            }
+
+            loadJiraConfig();
+            initialize();
+        });
+    </script>
+</body>
+</html>
